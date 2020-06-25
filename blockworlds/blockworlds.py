@@ -24,8 +24,6 @@ from SimPEG import maps
 from SimPEG.potential_fields import gravity
 # import SimPEG.dask
 
-from sklearn.decomposition import PCA
-
 
 def profile_timer(f, *args, **kwargs):
     """
@@ -312,6 +310,55 @@ def run_grav_survey_sphere(survey, dL=1.0, run_treemesh=True):
     grav = profile_timer(calculate_forward_gravity, survey, mesh, model)
     return grav
 
+
+class DiscreteGravity:
+    """
+    Run regular gravity model on a single mesh
+    """
+
+    def __init__(self, mesh, survey, gfunc):
+        """
+        Initialize the problem
+        :param mesh: discretize.mesh instance
+        :param survey: SimPEG.gravity.Gravity.Survey instance
+        :param gfunc: geology function mapping a np.array of (x,y,z) positions
+            (shape = (N, 3)) to a set of rock properties (density contrast)
+        """
+        # Set all the initial stuff up
+        self.survey = survey
+        self.mesh = mesh
+        self.gfunc = gfunc
+        # Initialize a gravity simulation object to cache sensitivities and
+        # make MCMC that much faster
+        self.model_map = maps.IdentityMap(mesh=mesh, nP=mesh.nC)
+        self.ind_active = np.array([True for i in range(mesh.nC)])
+        self.fwd = gravity.simulation.Simulation3DIntegral(
+            survey=self.survey,
+            mesh=self.mesh,
+            rhoMap=self.model_map,
+            actInd=self.ind_active,
+            store_sensitivities="ram",
+        )
+        self.voxmodel = None
+        self.fwd_data = None
+
+    def calc_gravity(self, *args):
+        """
+        :param *args: arguments to pass to gfunc
+        :return: np.array of gravity readings
+        """
+        # The baseline action is to just evaluate the rock properties directly
+        # at the centers of the mesh, which will almost certainly not give
+        # very good convergence behavior; if/when we sort out anti-aliasing
+        # for rectilinear meshes, we should include it here
+        self.voxmodel = self.gfunc(self.mesh.gridCC, *args)
+        fwd_data = self.fwd.dpred(self.voxmodel)
+        return fwd_data
+
+    def plot_model_slice(self):
+        plot_model_slice(self.mesh, self.voxmodel)
+
+
 class RichardsonGravity:
     """
     Run gravity on different meshes, then solve for the infinite resolution
@@ -437,5 +484,23 @@ def main():
     plot_gravity(survey, resR)
 
 
+def notebook_test_scratch():
+    # True sphere properties
+    z0, R, rho = 16.0, 10.0, 5.0
+    gfunc = gfunc_uniform_sphere
+
+    # Instantiate a basic rectilinear "tensor mesh",
+    # and a grid-like survey of 100 observations at the surface
+    L, h = 16.0, 2.0
+    Nh = 2 * int(L / h)
+    mesh = baseline_tensor_mesh(Nh, h)
+    survey = survey_gridded_locations(L, L, 10, 10, z0, ['gz'])
+
+    # Instantiate the forward model
+    fwdmodel = DiscreteGravity(mesh, survey, gfunc)
+    fwdmodel.calc_gravity(R, rho)
+    fwdmodel.plot_model_slice()
+
+
 if __name__ == '__main__':
-    main()
+    notebook_test_scratch()
