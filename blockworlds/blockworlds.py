@@ -139,10 +139,10 @@ def survey_random_locations(Lx, Ly, Nr, z0, components=['gz']):
     return construct_survey(locations, components)
 
 # ============================================================================
-#               Procedures for instantiating discretized worlds
+#                     Plotting and visualization functions
 # ============================================================================
 
-def plot_model_slice(mesh, model):
+def plot_model_slice(mesh, model, ax=None):
     """
     Plot a vertical slice of a model so we can see what we're doing; this is
     completely ripped off one of the SimPEG notebooks, so if we decide we want
@@ -150,44 +150,61 @@ def plot_model_slice(mesh, model):
     :param mesh: discretize.mesh instance
     :param model: np.array of rock properties conforming to mesh
         (usually evaluated as gfunc(mesh.gridCC) or similar)
+    :param ax: optional matplotlib.axes.Axes instance (into subplot);
+        if None, create new set of axes and hit matplotlib.show() at the end
     :return: nothing (yet)
     """
-    fig = plt.figure(figsize=(9, 4))
-    ind_active = (model == model)
-    plotting_map = maps.InjectActiveCells(mesh, ind_active, np.nan)
-    ax1 = fig.add_axes([0.1, 0.12, 0.73, 0.78])
-    mesh.plotSlice(
-        plotting_map * model,
+    show = (ax is None)
+    if show:
+        fig = plt.figure(figsize=(9, 4))
+        ax = plt.gca()
+    # ind_active = (model == model)
+    # plotting_map = maps.InjectActiveCells(mesh, ind_active, np.nan)
+    plot_objects = mesh.plotSlice(
+        model, # plotting_map*model,
         normal="Y",
-        ax=ax1,
-        # ind=int(mesh.nCy / 2),
+        ax=ax,
         ind=int(mesh.hy.size / 2),
         grid=True,
         clim=(np.min(model), np.max(model)),
         pcolorOpts={"cmap": "viridis"},
     )
-    ax1.set_title("Model slice at y = 0 m")
-    ax1.set_xlabel("x (m)")
-    ax1.set_ylabel("z (m)")
-    ax2 = fig.add_axes([0.85, 0.12, 0.05, 0.78])
-    norm = mpl.colors.Normalize(vmin=np.min(model), vmax=np.max(model))
-    cbar = mpl.colorbar.ColorbarBase(
-        ax2, norm=norm, orientation="vertical", cmap=mpl.cm.viridis
-    )
-    cbar.set_label("$g/cm^3$", rotation=270, labelpad=15, size=12)
-    plt.show()
+    quadmeshimg = plot_objects[0]
+    ax.set_title("Model slice at y = 0 m")
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("z (m)")
+    plt.colorbar(quadmeshimg, aspect=10, pad=0.02, label="Density (g/cm$^3$)")
+    if show:
+        plt.show()
 
-def setup_world(mesh, gfunc, *args):
+def plot_gravity(survey, data, ax=None):
     """
-    Shorthand; just evaluates gfunc at the centers of the grid cells
-    :param mesh: discretize.mesh instance
-    :param gfunc: callable accepting np.array of 3-D locations of shape (N, 3)
-        and returning an np.array of rock properties of shape (N, )
-    :param *args: ordered parameters to gfunc
-    :return: np.array of shape (N, ) -- a geophysical "model" for SimPEG
-        representing a 3-D array of rock properties
+    Shows a 2-D overhead map of a gravity survey
+    :param survey: survey instance
+    :param data: measurements
+    :param ax: optional matplotlib.axes.Axes instance (into subplot);
+        if None, create new set of axes and hit matplotlib.show() at the end
+    :return: nothing (yet)
     """
-    return gfunc(mesh.gridCC, *args)
+    show = (ax is None)
+    if show:
+        fig = plt.figure(figsize=(6, 5))
+        ax = plt.gca()
+    locations = survey.receiver_locations
+    quadcont, axsub = plot2Ddata(
+        survey.receiver_locations, data, ax=ax,
+        contourOpts={"cmap": "bwr"}
+    )
+    ax.set_title("Gravity Anomaly (Z-component)")
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("y (m)")
+    plt.colorbar(quadcont, format="%.0g", pad=0.03, label="Anomaly (mgal)")
+    if show:
+        plt.show()
+
+# ============================================================================
+#               Procedures for instantiating discretized worlds
+# ============================================================================
 
 def gfunc_uniform_sphere(r, R, rho):
     """
@@ -199,50 +216,7 @@ def gfunc_uniform_sphere(r, R, rho):
     """
     return rho * (np.sum(r**2, axis=1) < R**2)
 
-def setup_exp01_sphere_world(R, rho, mesh):
-    """
-    Set up experiment 1, a round sphere in the middle of space.  This is the
-    simplest possible distribution, free of boundary value issues; the field
-    should just be an inverse square law centered at the mesh center.
-    :param R: radius of sphere (m)
-    :param rho: density contrast of sphere (kg/m^3)
-    :param mesh: discretize.mesh instance
-    :return: nothing (yet)
-    """
-    gfunc = lambda r: rho * (np.sum(r**2, axis=1) < R**2)
-    return setup_world(mesh, gfunc)
-
-def calculate_forward_gravity(survey, mesh, model, plot=False):
-    """
-    Calculates forward gravity end to end.  A shorthand -- if you're going to
-    calculate forward gravity repeatedly using this mesh, you'll want to cache
-    the sensitivities inside the Simulation3DIntegral instance we're using.
-    :param survey: gravity.survey.Survey instance
-    :param mesh: discretize.mesh instance
-    :param model:
-    :param plot:
-    :return:
-    """
-    # Shamelessly ganked from the SimPEG docs
-    # Use the entire mesh
-    model_map = maps.IdentityMap(mesh=mesh, nP=mesh.nC)
-    ind_active = (model == model)
-    # Simulation instance
-    simulation = gravity.simulation.Simulation3DIntegral(
-        survey=survey,
-        mesh=mesh,
-        rhoMap=model_map,
-        actInd=ind_active,
-        store_sensitivities="ram", # "forward_only",
-    )
-    # Compute predicted data for the model passed in
-    dpred = simulation.dpred(model)
-
-    if plot:
-        plot_gravity(survey, dpred)
-    return dpred
-
-def analytic_forward_gravity_sphere(survey, R, rho):
+def analytic_forward_gravity_sphere(survey, R, rho, r0=(0, 0, 0)):
     """
     Analytic forward gravity for a sphere (gz component)
     :param R: radius of sphere (m)
@@ -251,63 +225,7 @@ def analytic_forward_gravity_sphere(survey, R, rho):
     """
     r = survey.receiver_locations.T
     grav = gravity.analytics.GravSphereFreeSpace(r[0], r[1], r[2], R,
-                                                 0.0, 0.0, 0.0, rho)
-    return grav
-
-def plot_gravity(survey, data):
-    """
-    Shows a 2-D overhead map of a gravity survey
-    :param survey: survey instance
-    :param data: measurements
-    :return: nothing
-    """
-    fig = plt.figure(figsize=(7, 5))
-    ax1 = fig.add_axes([0.1, 0.1, 0.75, 0.85])
-    locations = survey.receiver_locations
-    plot2Ddata(survey.receiver_locations, data, ax=ax1,
-               contourOpts={"cmap": "bwr"})
-    ax1.set_title("Gravity Anomaly (Z-component)")
-    ax1.set_xlabel("x (m)")
-    ax1.set_ylabel("y (m)")
-
-    ax2 = fig.add_axes([0.82, 0.1, 0.03, 0.85])
-    norm = mpl.colors.Normalize(vmin=-np.max(np.abs(data)),
-                                vmax=np.max(np.abs(data)))
-    cbar = mpl.colorbar.ColorbarBase(
-        ax2, norm=norm, orientation="vertical", cmap=mpl.cm.bwr, format="%.1e"
-    )
-    cbar.set_label("$mgal$", rotation=270, labelpad=15, size=12)
-    plt.show()
-
-def run_grav_survey_sphere(survey, dL=1.0, run_treemesh=True):
-    """
-    Run forward gravity for the given survey and block resolution
-    :param survey: gravity survey geometry
-    :param dL: block size in meters
-    :return: np.array of gravity measurements
-    """
-    L, z0, R, rho, Ng = 16.0, 8.0, 10.0, 1000.0, 10
-    NL = 2*int(L/dL)
-    print ("L, dL, N =", L, dL, NL)
-
-    t0 = time.time()
-    if run_treemesh:
-        # Refine along sphere border
-        mesh = baseline_octree_mesh(NL, dL)
-        f = lambda x, y: np.sqrt(R**2 - x**2 - y**2)
-        mesh = refine_octree_surface(mesh, f)
-        f = lambda x, y: -np.sqrt(R**2 - x**2 - y**2)
-        mesh = refine_octree_surface(mesh, f)
-        mesh.finalize()
-    else:
-        mesh = baseline_tensor_mesh(NL, dL)
-    t1 = time.time()
-    print("setup_mesh ran in {:.3f} sec".format(t1-t0))
-
-    # try a Richardson limit approach
-    model = setup_world(mesh, gfunc_uniform_sphere, R, rho)
-    plot_model_slice(mesh, model)
-    grav = profile_timer(calculate_forward_gravity, survey, mesh, model)
+                                                 r0[0], r0[1], r0[2], rho)
     return grav
 
 
@@ -352,11 +270,14 @@ class DiscreteGravity:
         # very good convergence behavior; if/when we sort out anti-aliasing
         # for rectilinear meshes, we should include it here
         self.voxmodel = self.gfunc(self.mesh.gridCC, *args)
-        fwd_data = self.fwd.dpred(self.voxmodel)
-        return fwd_data
+        self.fwd_data = self.fwd.dpred(self.voxmodel)
+        return self.fwd_data
 
-    def plot_model_slice(self):
-        plot_model_slice(self.mesh, self.voxmodel)
+    def plot_model_slice(self, **kwargs):
+        plot_model_slice(self.mesh, self.voxmodel, **kwargs)
+
+    def plot_gravity(self, **kwargs):
+        plot_gravity(self.survey, self.fwd_data, **kwargs)
 
 
 class RichardsonGravity:
@@ -406,7 +327,7 @@ class RichardsonGravity:
         for i in range(len(self.dL)):
             dLi = self.dL[i]
             mesh, sim = self.meshxfwd[i]
-            model = setup_world(mesh, self.gfunc, *args)
+            model = self.gfunc(mesh.gridCC, *args)
             dpred = sim.dpred(model)
             plot_gravity(self.survey, dpred)
             f.append(dpred)
@@ -452,19 +373,7 @@ def main():
     components = ['gz']
     survey = survey_gridded_locations(L, L, Ng, Ng, z0, components)
     # survey = survey_random_locations(L, L, Ng*Ng, z0, components)
-    # old Richardson setup
-    """
-    grav2 = run_grav_survey_sphere(survey, h, run_treemesh=False)
-    grav1 = run_grav_survey_sphere(survey, h/t, run_treemesh=False)
-    gravR = (t**2 * grav1 - grav2)/(t**2 - 1)
-    grav0 = analytic_forward_gravity_sphere(survey, R, rho)[2]
-    res = grav2-grav0
-    print("mu, std resids t=2 =", np.mean(res/gravR), np.std(res/gravR))
-    res = grav1-grav0
-    print("mu, std resids t=1 =", np.mean(res/gravR), np.std(res/gravR))
-    res = gravR-grav0
-    print("mu, std resids t=R =", np.mean(res/gravR), np.std(res/gravR))
-    """
+
     # new Richardson setup
     RG = RichardsonGravity(L, [2.8, 2.0, 1.4], survey, gfunc_uniform_sphere)
     gravR = RG.calc_gravity(R, rho)
@@ -484,23 +393,6 @@ def main():
     plot_gravity(survey, resR)
 
 
-def notebook_test_scratch():
-    # True sphere properties
-    z0, R, rho = 16.0, 10.0, 5.0
-    gfunc = gfunc_uniform_sphere
-
-    # Instantiate a basic rectilinear "tensor mesh",
-    # and a grid-like survey of 100 observations at the surface
-    L, h = 16.0, 2.0
-    Nh = 2 * int(L / h)
-    mesh = baseline_tensor_mesh(Nh, h)
-    survey = survey_gridded_locations(L, L, 10, 10, z0, ['gz'])
-
-    # Instantiate the forward model
-    fwdmodel = DiscreteGravity(mesh, survey, gfunc)
-    fwdmodel.calc_gravity(R, rho)
-    fwdmodel.plot_model_slice()
-
-
 if __name__ == '__main__':
-    notebook_test_scratch()
+    main()
+    # notebook_test_scratch()
