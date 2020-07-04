@@ -93,7 +93,7 @@ def generate_random_data(N, uniform_omega=True):
 class GaussianProcessAntialiasing:
 
     def __init__(self):
-        k1 = GP.kernels.Matern(length_scale=[1.0,1.0], nu=0.5)
+        k1 = GP.kernels.Matern(length_scale=[1.0,1.0,1.0], nu=1.5)
         k2 = GP.kernels.WhiteKernel(noise_level=1e-5)
         self.gp = GP.GaussianProcessRegressor(kernel=k1 + k2)
 
@@ -104,13 +104,16 @@ class GaussianProcessAntialiasing:
         :return: np.array of shape (N, 2), suitable for fitting
         """
         r0, n = rawpars[:,:3], rawpars[:,3:]
+        x = np.min(np.abs(n), axis=1)
         z = np.max(np.abs(n), axis=1)
         # p1 = dot product of r0 into n, the primary predictor
         p1 = np.sum(r0*n, axis=1)
         # p2 = tangent of angle with nearest face of cube
         # this differentiates between face-on, edge-on, and corner-on cases
         p2 = np.sqrt(1-z**2)/z
-        return np.vstack([[p1],[p2]]).T
+        # p3 = sine of azimuthal angle
+        p3 = x/np.sqrt(1-z**2)
+        return np.vstack([[p1],[p2],[p3]]).T
 
     def fit(self, pars, pV):
         """
@@ -136,7 +139,8 @@ class GaussianProcessAntialiasing:
         """
         X = self._preprocess(rawpars)
         Y = self.gp.predict(X)
-        Y[np.abs(X[:,0]) > 0.866] = 0.0
+        Y[Y < 0] = 0.0
+        Y[Y > 1] = 1.0
         return Y.ravel()
 
 def compare_antialiasing():
@@ -179,7 +183,7 @@ def compare_antialiasing():
         idx = np.argsort(x)
         plt.plot(x[idx], y[idx], c='gray', lw=0.5)
     x = np.linspace(-1.0, 1.0, 41)
-    xgp = np.vstack([[x], [np.ones(len(x))]]).T
+    xgp = np.vstack([[x], 0.5*np.ones(shape=(2, len(x)))]).T
     print("xgp.shape =", xgp.shape)
     plt.plot(x, parpV1(x), c='r', lw=2, ls='--', label="piecewise")
     plt.plot(x, parpV2(x), c='b', lw=2, ls='--', label="softmax")
