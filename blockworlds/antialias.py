@@ -92,8 +92,17 @@ def generate_random_data(N, uniform_omega=True):
 
 class GaussianProcessAntialiasing:
 
-    def __init__(self):
-        k1 = GP.kernels.Matern(length_scale=[1.0,1.0,1.0], nu=1.5)
+    def __init__(self, N_features=3, nu=1.5):
+        """
+        :param N_features: number of features for prediction (1, 2, or 3)
+        :param nu: degrees of freedom in Matern kernel for GP
+        """
+        if N_features not in (1, 2, 3):
+            raise IndexError("GaussianProcessAntialiasing.__init__:"
+                             "  N_features must be either 1, 2, or 3")
+        self.N_features = N_features
+        length_scale = np.ones(N_features)
+        k1 = GP.kernels.Matern(length_scale=length_scale, nu=nu)
         k2 = GP.kernels.WhiteKernel(noise_level=1e-5)
         self.gp = GP.GaussianProcessRegressor(kernel=k1 + k2)
 
@@ -104,16 +113,19 @@ class GaussianProcessAntialiasing:
         :return: np.array of shape (N, 2), suitable for fitting
         """
         r0, n = rawpars[:,:3], rawpars[:,3:]
-        x = np.min(np.abs(n), axis=1)
-        z = np.max(np.abs(n), axis=1)
-        # p1 = dot product of r0 into n, the primary predictor
-        p1 = np.sum(r0*n, axis=1)
-        # p2 = tangent of angle with nearest face of cube
+        p = np.zeros(shape=(len(r0), 3))
+        # feature 1 = dot product of r0 into n, the primary predictor
+        p[:,0] = np.sum(r0*n, axis=1)
+        # feature 2 = tangent of angle with nearest face of cube
         # this differentiates between face-on, edge-on, and corner-on cases
-        p2 = np.sqrt(1-z**2)/z
-        # p3 = sine of azimuthal angle
-        p3 = x/np.sqrt(1-z**2)
-        return np.vstack([[p1],[p2],[p3]]).T
+        if self.N_features >= 2:
+            z = np.max(np.abs(n), axis=1)
+            p[:,1] = np.sqrt(1-z**2)/z
+        # feature 3 = sine of azimuthal angle for further direction detail
+        if self.N_features >= 3:
+            x = np.min(np.abs(n), axis=1)
+            p[:,2] = x/np.sqrt(1-z**2)
+        return p[:,:self.N_features]
 
     def fit(self, pars, pV):
         """
@@ -143,9 +155,10 @@ class GaussianProcessAntialiasing:
         Y[Y > 1] = 1.0
         return Y.ravel()
 
-def compare_antialiasing():
+def compare_antialiasing(N_features_gp=3):
     """
     Demo different functional forms for antialiasing
+    :param N_features_gp: number of GP features to use (1, 2, or 3)
     :return: nothing (yet)
     """
 
@@ -162,15 +175,25 @@ def compare_antialiasing():
         r[idx] = 1.0 / (1.0 + np.exp(d[idx]))
         return r
 
+    def parpV3(x, gp):      # GP interpolation (w/one feature, for display)
+        # Grab the underlying GP and evaluate it using a single feature
+        # This is only for plots; residuals calculated using all features
+        N_pad = gp.N_features - 1
+        xgp = np.vstack([[x], 0.5 * np.ones(shape=(N_pad, len(x)))]).T
+        r = gp.gp.predict(xgp)
+        r[r < 0.0] = 0.0
+        r[r > 1.0] = 1.0
+        return r
+
     # Generate some data and go
     Xtrain, Ytrain = generate_random_data(1000, uniform_omega=True)
-    gp = GaussianProcessAntialiasing()
+    gp = GaussianProcessAntialiasing(N_features=N_features_gp)
     profile_timer(gp.fit, Xtrain, Ytrain)
 
     # Show some typical curves
     pars, pV = generate_random_data(100)
     r0, n = pars[:,:3], pars[:,3:]
-    fig = plt.figure(figsize=(8,4))
+    fig = plt.figure(figsize=(10, 4))
     plt.subplot(121)
     resids1, resids2, resids3 = [ ], [ ], [ ]
     for ni in n:
@@ -183,23 +206,23 @@ def compare_antialiasing():
         idx = np.argsort(x)
         plt.plot(x[idx], y[idx], c='gray', lw=0.5)
     x = np.linspace(-1.0, 1.0, 41)
-    xgp = np.vstack([[x], 0.5*np.ones(shape=(2, len(x)))]).T
-    print("xgp.shape =", xgp.shape)
     plt.plot(x, parpV1(x), c='r', lw=2, ls='--', label="piecewise")
     plt.plot(x, parpV2(x), c='b', lw=2, ls='--', label="softmax")
-    plt.plot(x, gp.gp.predict(xgp), c='g', lw=2, ls='--', label="GP")
+    plt.plot(x, parpV3(x,gp), c='g', lw=2, ls='--',
+             label="GP ($N_\mathrm{{pars}} = {}$)".format(N_features_gp))
     plt.xlabel("Coverage Parameter $(\mathbf{r_0 \cdot n})/h$")
     plt.ylabel("Cumulative Partial Volume / $h^3$")
     plt.legend()
     plt.subplot(122)
-    plt.hist(resids1, bins=40, range=(-0.1, 0.1), alpha=0.5, label='piecewise')
-    plt.hist(resids2, bins=40, range=(-0.1, 0.1), alpha=0.5, label='softmax')
-    plt.hist(resids3, bins=40, range=(-0.1, 0.1), alpha=0.5, label='GP')
+    plt.hist(resids1, bins=50, range=(-0.1, 0.1), alpha=0.5, label='piecewise')
+    plt.hist(resids2, bins=50, range=(-0.1, 0.1), alpha=0.5, label='softmax')
+    plt.hist(resids3, bins=50, range=(-0.1, 0.1), alpha=0.5,
+             label="GP ($N_\mathrm{{pars}} = {}$)".format(N_features_gp))
     print("resids(piecewise) mean, std = {:.3g}, {:.3g}"
           .format(np.mean(resids1), np.std(resids1)))
     print("resids(softmax)   mean, std = {:.3g}, {:.3g}"
           .format(np.mean(resids2), np.std(resids2)))
-    print("resids(GP)     mean, std = {:.3g}, {:.3g}"
+    print("resids(GP)        mean, std = {:.3g}, {:.3g}"
           .format(np.mean(resids3), np.std(resids3)))
     plt.xlabel("Residuals in Partial Volume / $h^3$")
     plt.legend()
@@ -208,4 +231,4 @@ def compare_antialiasing():
 
 
 if __name__ == "__main__":
-    compare_antialiasing()
+    compare_antialiasing(N_features_gp=2)
