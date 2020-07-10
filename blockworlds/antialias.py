@@ -161,6 +161,7 @@ def compare_antialiasing(N_features_gp=3):
     :param N_features_gp: number of GP features to use (1, 2, or 3)
     :return: nothing (yet)
     """
+    from scipy.special import erf
 
     def parpV1(x):          # piecewise linear interpolation
         r = 1.1*x + 0.5
@@ -168,11 +169,10 @@ def compare_antialiasing(N_features_gp=3):
         r[r > 1.0] = 1.0
         return r
 
-    def parpV2(x):          # softmax interpolation
-        d = -5*x
+    def parpV2(x):          # error function (cdf of a Gaussian)
         r = 1.0 * (x < 0)
-        idx = (np.abs(d) < 100)
-        r[idx] = 1.0 / (1.0 + np.exp(d[idx]))
+        idx = (np.abs(r) < 100)
+        r[idx] = 0.5*(1 + erf(2.15*x[idx]))
         return r
 
     def parpV3(x, gp):      # GP interpolation (w/one feature, for display)
