@@ -43,15 +43,17 @@ def profile_timer(f, *args, **kwargs):
 #    Procedures to build baseline meshes and refine them around interfaces
 # ============================================================================
 
-def baseline_tensor_mesh(N, delta):
+def baseline_tensor_mesh(N, delta, centering="CCC"):
     """
     Set up a basic regular Cartesian tensor mesh other packages would use
     :param N: length of one edge of a cubical volume in cells
     :param delta: length of one edge of a mesh cube
+    :param centering: a three-letter code specifying whether each axis is
+        positive ('P'), negative ('N'), or centered ('C')
     :return: TensorMesh instance
     """
     hx = hy = hz = [(delta, N),]
-    return TensorMesh([hx, hy, hz], "CCC")
+    return TensorMesh([hx, hy, hz], centering)
 
 def baseline_octree_mesh(N, delta):
     """
