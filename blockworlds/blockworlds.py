@@ -34,7 +34,7 @@ def profile_timer(f, *args, **kwargs):
     :return: value of f for those parameters
     """
     t0 = time.time()
-    result = f(*args, *kwargs)
+    result = f(*args, **kwargs)
     t1 = time.time()
     print("{} ran in {:.3f} sec".format(f.__name__, t1-t0))
     return result
