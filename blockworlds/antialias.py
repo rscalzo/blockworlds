@@ -155,6 +155,23 @@ class GaussianProcessAntialiasing:
         Y[Y > 1] = 1.0
         return Y.ravel()
 
+    def predict_1d(self, d):
+        """
+        Wraps predictions based only on the first GP feature, marginalizing
+        out the other two features if they have been fitted.
+        :param d: the first feature np.dot(r0, d), np.array of shape (N, )
+        :return: np.array of shape (N, )
+        """
+        X = np.repeat(d, self.N_features).reshape(-1, self.N_features)
+        if self.N_features >= 2:
+            X[:,1] = 0.44
+        if self.N_features >= 3:
+            X[:,2] = 0.64
+        Y = self.gp.predict(X)
+        Y[Y < 0] = 0.0
+        Y[Y > 1] = 1.0
+        return Y.ravel()
+
 def compare_antialiasing(N_features_gp=3):
     """
     Demo different functional forms for antialiasing
@@ -164,7 +181,7 @@ def compare_antialiasing(N_features_gp=3):
     from scipy.special import erf
 
     def parpV1(x):          # piecewise linear interpolation
-        r = 1.1*x + 0.5
+        r = 1.0*x + 0.5
         r[r < 0.0] = 0.0
         r[r > 1.0] = 1.0
         return r
@@ -178,11 +195,7 @@ def compare_antialiasing(N_features_gp=3):
     def parpV3(x, gp):      # GP interpolation (w/one feature, for display)
         # Grab the underlying GP and evaluate it using a single feature
         # This is only for plots; residuals calculated using all features
-        N_pad = gp.N_features - 1
-        xgp = np.vstack([[x], 0.5 * np.ones(shape=(N_pad, len(x)))]).T
-        r = gp.gp.predict(xgp)
-        r[r < 0.0] = 0.0
-        r[r > 1.0] = 1.0
+        r = gp.predict_1d(x)
         return r
 
     # Generate some data and go
@@ -231,4 +244,4 @@ def compare_antialiasing(N_features_gp=3):
 
 
 if __name__ == "__main__":
-    compare_antialiasing(N_features_gp=2)
+    compare_antialiasing(N_features_gp=3)
