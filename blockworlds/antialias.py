@@ -204,7 +204,7 @@ def compare_antialiasing(N_features_gp=3):
     profile_timer(gp.fit, Xtrain, Ytrain)
 
     # Show some typical curves
-    pars, pV = generate_random_data(100)
+    pars, pV = generate_random_data(200)
     r0, n = pars[:,:3], pars[:,3:]
     fig = plt.figure(figsize=(10, 4))
     plt.subplot(121)
