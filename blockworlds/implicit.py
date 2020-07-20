@@ -20,7 +20,7 @@ from blockworlds import baseline_tensor_mesh, survey_gridded_locations
 def l2norm(v):
     return np.sqrt(np.sum(np.atleast_2d(v**2), axis=1))
 
-def soft_if_then(d, y0, y1, h, grad=False):
+def soft_if_then(d, y0, y1, h):
     """
     :param y0: limiting value on negative side of d
     :param y1: limiting value on positive side of d
@@ -28,14 +28,15 @@ def soft_if_then(d, y0, y1, h, grad=False):
     :return: y0 if d << 0, y1 if d >> 0, with smooth transition over |d| < h
     """
     # linear (boxcar smoothing kernel)
-    # result = 0.5*(y0+y1) - (y0-y1)*d/h
-    # result[d < -0.5*h] = y0[d < -0.5*h]
-    # result[d > +0.5*h] = y1[d > +0.5*h]
+    result = 0.5*(y0+y1) - (y0-y1)*d/h
+    result[d < -0.5*h] = y0[d < -0.5*h]
+    result[d > +0.5*h] = y1[d > +0.5*h]
     # error function (Gaussian kernel)
-    # result = 0.5 * (1 + erf(2.15 * d/h))    # goes from 0 to 1
+    # result = 0.5 * (1 + erf(2.15 * d/h))          # goes from 0 to 1
+    # result = result*(y1-y0) + y0                  # goes from y0 to y1
     # tanh function (some other smooth kernel)
-    result = 0.5 * (1 + np.tanh(2.5*d/h))   # goes from 0 to 1
-    result = result*(y1-y0) + y0            # goes from y0 to y1
+    # result = 0.5 * (1 + np.tanh(2.5*d/h))         # goes from 0 to 1
+    # result = result*(y1-y0) + y0                  # goes from y0 to y1
     return result
 
 # ============================================================================
@@ -140,6 +141,11 @@ class BasementEvent(GeoEvent):
     def rockprops(self, r, h):
         return self.density * np.ones(shape=r.shape[:-1])
 
+    def log_prior(self):
+        # density: lognormal with default mean and variance
+        lp = -0.5*((np.log10(self.density) - 0.5)/0.1)**2
+        return lp
+
 
 class StratLayerEvent(GeoEvent):
 
@@ -151,6 +157,13 @@ class StratLayerEvent(GeoEvent):
         rho_up = self.density*np.ones(shape=r.shape[:-1])
         rho_down = self.previous_event.rockprops(rp, h)
         return soft_if_then(rp[:,2], rho_down, rho_up, h)
+
+    def log_prior(self):
+        # density: lognormal with default mean and variance
+        # thickness: exponential with default scale length (100 km)
+        lp = -0.5*((np.log10(self.density) - 0.5)/0.2)**2
+        lp = lp - (np.inf if self.thickness < 0 else (self.thickness/1e+5))
+        return lp
 
 
 class PlanarFaultEvent(GeoEvent):
@@ -174,6 +187,13 @@ class PlanarFaultEvent(GeoEvent):
         g0 = self.previous_event.rockprops(r, h)
         g1 = self.previous_event.rockprops(r + rdelt, h)
         return soft_if_then(np.dot(r-r0, n), g0, g1, h)
+
+    def log_prior(self):
+        # nth, nph: uniform in solid angle
+        # s: exponential with default scale length
+        lp = np.cos(np.radians(self.nth))
+        lp = lp - 0.5*(self.s/1e+5)**2
+        return lp
 
 
 class GeoHistory:
@@ -199,6 +219,9 @@ class GeoHistory:
 
     def rockprops(self, r, h):
         return self.event_list[-1].rockprops(r, h)
+
+    def logprior(self):
+        return np.sum([event.log_prior() for event in self.event_list])
 
 
 # ============================================================================
