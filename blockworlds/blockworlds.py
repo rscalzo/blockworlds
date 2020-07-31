@@ -262,6 +262,15 @@ class DiscreteGravity:
         self.voxmodel = None
         self.fwd_data = None
 
+    def calc_voxmodel(self, *args):
+        """
+        Calculate voxelized rock properties
+        :param *args: arguments to pass to gfunc
+        :return: np.array of voxelized rock properties
+        """
+        self.voxmodel = self.gfunc(self.mesh.gridCC, *args)
+        return self.voxmodel
+
     def calc_gravity(self, *args):
         """
         :param *args: arguments to pass to gfunc
@@ -271,7 +280,7 @@ class DiscreteGravity:
         # at the centers of the mesh, which will almost certainly not give
         # very good convergence behavior; if/when we sort out anti-aliasing
         # for rectilinear meshes, we should include it here
-        self.voxmodel = self.gfunc(self.mesh.gridCC, *args)
+        self.calc_voxmodel(*args)
         self.fwd_data = self.fwd.dpred(self.voxmodel)
         return self.fwd_data
 
