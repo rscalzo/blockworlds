@@ -190,6 +190,7 @@ def compare_antialiasing(N_features_gp=3):
         r = 1.0 * (x < 0)
         idx = (np.abs(r) < 100)
         r[idx] = 0.5*(1 + erf(2.15*x[idx]))
+        # r[idx] = 0.5*(1 + np.tanh(0.8*np.pi*x))
         return r
 
     def parpV3(x, gp):      # GP interpolation (w/one feature, for display)
@@ -243,5 +244,40 @@ def compare_antialiasing(N_features_gp=3):
     plt.show()
 
 
+def accelerate_gp_antialiasing():
+    """
+    Look for alternative models that can deliver GP-like accuracy, quickly
+    :return: nothing (yet)
+    """
+
+    # Generate some data and go
+    Xtrain, Ytrain = generate_random_data(1000, uniform_omega=True)
+    gp = GaussianProcessAntialiasing(N_features=3)
+    profile_timer(gp.fit, Xtrain, Ytrain)
+    # Generate a bunch of samples and do fPCA
+    rawpars, pV = generate_random_data(200)
+    pars = gp._preprocess(rawpars)
+    x = np.linspace(-1.0, 1.0, 81)
+    X = np.array([[[xi, p[-2], p[-1]] for xi in x] for p in pars])
+    print("X.shape =", X.shape)
+    Y = profile_timer(gp.gp.predict, X.reshape(-1, 3))
+    Y = Y.reshape(X.shape[:-1])
+    Y = 0.5*(Y - Y[:,::-1])
+    print("Y.shape =", Y.shape)
+
+    # Run PCA on the profiles
+    from sklearn.decomposition import PCA
+    pca = PCA(whiten=True)
+    pca.fit(Y)
+    print("pca.components_ =", pca.components_)
+    print("pca.explained_variance_ratio_ =", pca.explained_variance_ratio_)
+    print("pca.components_.shape =", pca.components_.shape)
+    for i in range(5):
+        plt.plot(pca.components_[i,:], label="component {}".format(i+1))
+    plt.legend()
+    plt.show()
+
+
 if __name__ == "__main__":
     compare_antialiasing(N_features_gp=3)
+    # accelerate_gp_antialiasing()
