@@ -285,6 +285,22 @@ class FoldEvent(GeoEvent):
         return self.previous_event.rockprops(r + rdelt, h)
 
 
+class SphereIntrusionEvent(GeoEvent):
+
+    _pars = ['x0', 'y0', 'z0', 'R', 'density']
+
+    def rockprops(self, r, h):
+        assert(isinstance(self.previous_event, GeoEvent))
+        # Sphere center in Cartesian coordinates
+        r0 = np.array([self.x0, self.y0, self.z0])
+        # Uniform density contrast inside sphere
+        # Whatever background geology outside sphere
+        g0 = self.previous_event.rockprops(r, h)
+        g1 = self.density * np.ones(shape=r.shape[:-1])
+        fval = self.R - np.sqrt(np.sum((r-r0)**2, axis=1))
+        return soft_if_then(fval, g0, g1, h)
+
+
 class GeoHistory:
 
     def __init__(self):
