@@ -338,6 +338,59 @@ class GeoHistory:
 # ============================================================================
 
 
+def gen_two_fault_model_demo(pars):
+    """
+    Generate a demo model with three stratigraphic layers and two faults
+    (15 parameters), based on some starting parameter values as provided by
+    Mark Lindsay.
+    :param pars: np.array of shape (15,)
+    :return: GeoHistory instance
+    """
+    (rho_0, dz_1, rho_1, dz_2, rho_2,  # stratigraphy
+     x0_3, y0_3, nth_3, nph_3, s_3,  # 1st fault
+     x0_4, y0_4, nth_4, nph_4, s_4) = pars  # 2nd fault
+
+    # Initialize a new history and set the prior means at the values of the
+    # true parameters.  This implicitly makes us assume we're within the
+    # support of the prior throughout, so if we want to investigate possible
+    # prior misspecification we'll have to modify or supplant this.
+    history = GeoHistory()
+    history.add_event(
+        BasementEvent(
+            [('density', UniGaussianDist(mean=rho_0, std=0.5))]
+        )
+    )
+    history.add_event(
+        StratLayerEvent(
+            [('thickness', UniGaussianDist(mean=dz_1, std=300.0)),
+             ('density', UniGaussianDist(mean=rho_1, std=0.5))]
+        )
+    )
+    history.add_event(
+        StratLayerEvent(
+            [('thickness', UniGaussianDist(mean=dz_2, std=300.0)),
+             ('density', UniGaussianDist(mean=rho_2, std=0.5))]
+        )
+    )
+    history.add_event(
+        PlanarFaultEvent(
+            [('x0', UniGaussianDist(mean=x0_3, std=100.0)),
+             ('y0', UniGaussianDist(mean=y0_3, std=100.0)),
+             ('nth', 'nph', vMFDist(th0=nth_3, ph0=nph_3, kappa=100)),
+             ('s', UniformDist(mean=s_3, width=1000.0))]
+        )
+    )
+    history.add_event(
+        PlanarFaultEvent(
+            [('x0', UniGaussianDist(mean=x0_4, std=100.0)),
+             ('y0', UniGaussianDist(mean=y0_4, std=100.0)),
+             ('nth', 'nph', vMFDist(th0=nth_4, ph0=nph_4, kappa=100)),
+             ('s', UniformDist(mean=s_4, width=1000.0))]
+        )
+    )
+    return history
+
+
 def plot_subsurface_02():
     """
     Create a basic graben geology using object-oriented API
@@ -350,40 +403,12 @@ def plot_subsurface_02():
     mesh = baseline_tensor_mesh(NL, h, centering='CCN')
     survey = survey_gridded_locations(L, L, 20, 20, z0)
     # Create the history
-    history = GeoHistory()
-    history.add_event(
-        BasementEvent(
-            [('density', UniGaussianDist(mean=3.0, std=0.5))]
-        )
+    history = gen_two_fault_model_demo(
+        [3.0, 1900.0, 2.5, 2500.0, 2.0,
+         -4000.0, 0.0, +20.0, 0.0, -4200.0,
+         +4000.0, 0.0, -20.0, 0.0, +4200.0]
     )
-    history.add_event(
-        StratLayerEvent(
-            [('thickness', UniGaussianDist(mean=1900.0, std=300.0)),
-            ('density', UniGaussianDist(mean=2.5, std=0.5))]
-        )
-    )
-    history.add_event(
-        StratLayerEvent(
-            [('thickness', UniGaussianDist(mean=2500.0, std=300.0)),
-             ('density', UniGaussianDist(mean=2.0, std=0.5))]
-        )
-    )
-    history.add_event(
-        PlanarFaultEvent(
-            [('x0', UniGaussianDist(mean=-4000.0, std=100.0)),
-             ('y0', UniGaussianDist(mean=0.0, std=100.0)),
-             ('nth', 'nph', vMFDist(th0=+20.0, ph0=0.0, kappa=100)),
-             ('s', UniformDist(mean=-4200.0, width=1000.0))]
-        )
-    )
-    history.add_event(
-        PlanarFaultEvent(
-            [('x0', UniGaussianDist(mean=+4000.0, std=100.0)),
-             ('y0', UniGaussianDist(mean=0.0, std=100.0)),
-             ('nth', 'nph', vMFDist(th0=-20.0, ph0=0.0, kappa=100)),
-             ('s', UniformDist(mean=+4200.0, width=1000.0))]
-        )
-    )
+    # Add a final Fold event just for laughs
     history.add_event(
         FoldEvent(
             [('nth', 'nph', vMFDist(th0=+0.0, ph0=0.0, kappa=100)),
