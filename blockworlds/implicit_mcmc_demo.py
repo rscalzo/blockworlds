@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import scipy.special as sp
 from blockworlds import profile_timer, DiscreteGravity
 from blockworlds import baseline_tensor_mesh, survey_gridded_locations
-from blockworlds himport gen_two_fault_model_demo, gen_fold_model_demo
+from blockworlds import gen_two_fault_model_demo, gen_fold_model_demo
 from riemann import Sampler, Model
 from riemann.proposals.randomwalk import AdaptiveMetropolisRandomWalk as AMRW
 from riemann.samplers.ptsampler import PTSampler
