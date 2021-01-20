@@ -172,13 +172,12 @@ class GaussianProcessAntialiasing:
         Y[Y > 1] = 1.0
         return Y.ravel()
 
-def compare_antialiasing(N_features_gp=3):
+def compare_antialiasing(N_features_gp=3, vertical=False):
     """
     Demo different functional forms for antialiasing
     :param N_features_gp: number of GP features to use (1, 2, or 3)
     :return: nothing (yet)
     """
-    from scipy.special import erf
 
     def parpV1(x):          # piecewise linear interpolation
         r = 1.0*x + 0.5
@@ -189,8 +188,7 @@ def compare_antialiasing(N_features_gp=3):
     def parpV2(x):          # error function (cdf of a Gaussian)
         r = 1.0 * (x < 0)
         idx = (np.abs(r) < 100)
-        r[idx] = 0.5*(1 + erf(2.15*x[idx]))
-        # r[idx] = 0.5*(1 + np.tanh(0.8*np.pi*x))
+        r[idx] = 0.5*(1 + np.tanh(2.2*x[idx] + 3.2*(x[idx])**3))
         return r
 
     def parpV3(x, gp):      # GP interpolation (w/one feature, for display)
@@ -207,8 +205,12 @@ def compare_antialiasing(N_features_gp=3):
     # Show some typical curves
     pars, pV = generate_random_data(200)
     r0, n = pars[:,:3], pars[:,3:]
-    fig = plt.figure(figsize=(10, 4))
-    plt.subplot(121)
+    if vertical:
+        figsize=(4.8, 6)
+    else:
+        figsize=(10, 6)
+    fig = plt.figure(figsize=figsize)
+    plt.subplot(211)
     resids1, resids2, resids3 = [ ], [ ], [ ]
     for ni in n:
         x = np.dot(r0, ni)
@@ -221,63 +223,133 @@ def compare_antialiasing(N_features_gp=3):
         plt.plot(x[idx], y[idx], c='gray', lw=0.5)
     x = np.linspace(-1.0, 1.0, 41)
     plt.plot(x, parpV1(x), c='r', lw=2, ls='--', label="piecewise")
-    plt.plot(x, parpV2(x), c='b', lw=2, ls='--', label="softmax")
+    plt.plot(x, parpV2(x), c='b', lw=2, ls='--', label="GLM")
     plt.plot(x, parpV3(x,gp), c='g', lw=2, ls='--',
              label="GP ($N_\mathrm{{pars}} = {}$)".format(N_features_gp))
     plt.xlabel("Coverage Parameter $(\mathbf{r_0 \cdot n})/h$")
     plt.ylabel("Cumulative Partial Volume / $h^3$")
     plt.legend()
-    plt.subplot(122)
-    plt.hist(resids1, bins=50, range=(-0.1, 0.1), alpha=0.5, label='piecewise')
-    plt.hist(resids2, bins=50, range=(-0.1, 0.1), alpha=0.5, label='softmax')
-    plt.hist(resids3, bins=50, range=(-0.1, 0.1), alpha=0.5,
+    plt.subplot(212)
+    plt.hist(resids1, bins=50, range=(-0.1, 0.1),
+             color='r', alpha=0.5, label='piecewise')
+    plt.hist(resids2, bins=50, range=(-0.1, 0.1),
+             color='b', alpha=0.5, label='GLM')
+    plt.hist(resids3, bins=50, range=(-0.1, 0.1), color='g', alpha=0.5,
              label="GP ($N_\mathrm{{pars}} = {}$)".format(N_features_gp))
-    print("resids(piecewise) mean, std = {:.3g}, {:.3g}"
-          .format(np.mean(resids1), np.std(resids1)))
-    print("resids(softmax)   mean, std = {:.3g}, {:.3g}"
-          .format(np.mean(resids2), np.std(resids2)))
-    print("resids(GP)        mean, std = {:.3g}, {:.3g}"
-          .format(np.mean(resids3), np.std(resids3)))
+    print("resids(piecewise) mean, std, mad, max "
+          "= {:.3g}, {:.3g}, {:.3g}, {:.3g}"
+          .format(np.mean(resids1), np.std(resids1),
+                  np.mean(np.abs(resids1)), np.max(np.abs(resids1))))
+    print("resids(GLM)       mean, std, mad, max "
+          "= {:.3g}, {:.3g}, {:.3g}, {:.3g}"
+          .format(np.mean(resids2), np.std(resids2),
+                  np.mean(np.abs(resids2)), np.max(np.abs(resids2))))
+    print("resids(GP)        mean, std, mad, max "
+          "= {:.3g}, {:.3g}, {:.3g}, {:.3g}"
+          .format(np.mean(resids3), np.std(resids3),
+                  np.mean(np.abs(resids3)), np.max(np.abs(resids3))))
     plt.xlabel("Residuals in Partial Volume / $h^3$")
     plt.legend()
-    plt.subplots_adjust(bottom=0.15)
+    if vertical:
+        # for vertical format
+        plt.subplots_adjust(bottom=0.08, top=0.92,
+                            left=0.12, right=0.88, hspace=0.35)
+        # save as figure for paper
+        plt.savefig("compare_antialiasing.eps")
+    else:
+        # for horizontal format
+        plt.subplots_adjust(bottom=0.15, top=0.88,
+                            left=0.08, right=0.92, wspace=0.25)
     plt.show()
 
 
-def accelerate_gp_antialiasing():
+def fit_glm_antialiasing():
     """
     Look for alternative models that can deliver GP-like accuracy, quickly
     :return: nothing (yet)
     """
 
-    # Generate some data and go
+    # Generate some random data
+    np.random.seed(42)
     Xtrain, Ytrain = generate_random_data(1000, uniform_omega=True)
+    # Transform Xtrain to the set of features useful in GP regression
     gp = GaussianProcessAntialiasing(N_features=3)
-    profile_timer(gp.fit, Xtrain, Ytrain)
-    # Generate a bunch of samples and do fPCA
-    rawpars, pV = generate_random_data(200)
-    pars = gp._preprocess(rawpars)
-    x = np.linspace(-1.0, 1.0, 81)
-    X = np.array([[[xi, p[-2], p[-1]] for xi in x] for p in pars])
-    print("X.shape =", X.shape)
-    Y = profile_timer(gp.gp.predict, X.reshape(-1, 3))
-    Y = Y.reshape(X.shape[:-1])
-    Y = 0.5*(Y - Y[:,::-1])
-    print("Y.shape =", Y.shape)
+    Xtrain = gp._preprocess(Xtrain)
 
-    # Run PCA on the profiles
-    from sklearn.decomposition import PCA
-    pca = PCA(whiten=True)
-    pca.fit(Y)
-    print("pca.components_ =", pca.components_)
-    print("pca.explained_variance_ratio_ =", pca.explained_variance_ratio_)
-    print("pca.components_.shape =", pca.components_.shape)
-    for i in range(5):
-        plt.plot(pca.components_[i,:], label="component {}".format(i+1))
-    plt.legend()
-    plt.show()
+    # Recursive experimental design to avoid double-counting cross-terms
+    def indices(N, order, terms=[]):
+        termslist = [ ]
+        # Termination case
+        if len(terms) == order:
+            return terms
+        # Starting case
+        elif len(terms) == 0:
+            ilo = 0
+        # Recursion
+        else:
+            ilo = terms[-1]
+        for i in range(ilo, N):
+            termslist.append(indices(N, order, terms=(terms + [i])))
+        termslist = np.concatenate(termslist).reshape(-1, order)
+        return termslist
+
+    # Unique cross-terms
+    def generate_cross_terms(X, order=1):
+        Xlist = np.ones(shape=(len(X), 1))
+        for k in range(1, order+1):
+            for idx in indices(X.shape[1], k):
+                cols = np.array([X[:,i] for i in idx])
+                newcol = np.prod(cols, axis=0).reshape(-1, 1)
+                Xlist = np.hstack([Xlist, newcol])
+        return np.array(Xlist)
+
+    # Hand-picked features up to order 3 based on symmetries of the cube
+    def selected_features(X):
+        rdotn, tanth, tanph = X.T
+        # Odd terms in rdot; even terms in tanth and tanph
+        Xp = np.hstack([rdotn.reshape(-1,1),])
+                        # (rdotn**3).reshape(-1,1)])
+                        # (rdotn*tanth**2).reshape(-1,1)])
+                        # (rdotn*tanph**2).reshape(-1,1)])
+        return Xp
+
+    Xtrain = selected_features(Xtrain) # generate_cross_terms(Xtrain, order=3)
+    print("Xtrain.shape =", Xtrain.shape)
+
+    # Define a predictor and/or an objective function
+    def glm(X, *p):
+        Xp = np.dot(X, p)
+        Ypred = np.zeros(Xp.shape)
+        idx_ok = (Xp < 100.0)
+        # Ypred[idx_ok] = 1.0/(1.0 + np.exp(Xp[idx_ok]))
+        Ypred[idx_ok] = np.tanh(np.pi*Xp[idx_ok])
+        return Ypred
+
+    def logpost(p, *args):
+        X, Y = args
+        Ypred = glm(X, *p)
+        resids = Ypred - Y
+        # maximizing log probability = minimizing -log probability
+        return np.sum((Ypred-Y)**2) + 0.01*np.sum(np.abs(p))
+
+    # Let's get out our curve-fitting apparatus
+    from scipy.optimize import curve_fit
+    p0 = np.zeros(Xtrain.shape[1])
+    popt, pcov = profile_timer(curve_fit, glm, Xtrain, Ytrain, p0)
+    resids = (glm(Xtrain, *popt)-Ytrain)
+    print("GLM fit:  popt =", popt)
+    print("resids:  mean = {}, std = {}".format(resids.mean(), resids.std()))
+
+    # Let's add the lasso penalty now
+    from scipy.optimize import minimize
+    results = profile_timer(minimize, logpost, p0, (Xtrain, Ytrain),
+                            method='Nelder-Mead', options={'maxiter': 10000})
+    print("results =", results)
+    resids = (glm(Xtrain, *(results.x))-Ytrain)
+    print("GLM fit:  popt =", results.x)
+    print("resids:  mean = {}, std = {}".format(resids.mean(), resids.std()))
 
 
 if __name__ == "__main__":
-    compare_antialiasing(N_features_gp=3)
-    # accelerate_gp_antialiasing()
+    compare_antialiasing(N_features_gp=3, vertical=True)
+    # fit_glm_antialiasing()
