@@ -144,7 +144,8 @@ def survey_random_locations(Lx, Ly, Nr, z0, components=['gz']):
 #                     Plotting and visualization functions
 # ============================================================================
 
-def plot_model_slice(mesh, model, ax=None):
+def plot_model_slice(mesh, model, ax=None,
+                     grid=True, axlabels=True, colorbar=True):
     """
     Plot a vertical slice of a model so we can see what we're doing; this is
     completely ripped off one of the SimPEG notebooks, so if we decide we want
@@ -167,19 +168,24 @@ def plot_model_slice(mesh, model, ax=None):
         normal="Y",
         ax=ax,
         ind=int(mesh.hy.size / 2),
-        grid=True,
+        grid=grid,
         clim=(np.min(model), np.max(model)),
         pcolorOpts={"cmap": "viridis"},
     )
     quadmeshimg = plot_objects[0]
-    ax.set_title("Model slice at y = 0 m")
-    ax.set_xlabel("x (m)")
-    ax.set_ylabel("z (m)")
-    plt.colorbar(quadmeshimg, aspect=10, pad=0.02, label="Density (g/cm$^3$)")
+    if axlabels:
+        ax.set_title("Model slice at y = 0 m")
+        ax.set_xlabel("x (m)")
+        ax.set_ylabel("z (m)")
+        colorbar_label = "Density (g/cm$^3$)"
+    else:
+        colorbar_label = ""
+    if colorbar:
+        plt.colorbar(quadmeshimg, aspect=10, pad=0.02, label=colorbar_label)
     if show:
         plt.show()
 
-def plot_gravity(survey, data, ax=None):
+def plot_gravity(survey, data, ax=None, axlabels=True, colorbar=True):
     """
     Shows a 2-D overhead map of a gravity survey
     :param survey: survey instance
@@ -197,10 +203,15 @@ def plot_gravity(survey, data, ax=None):
         survey.receiver_locations, data, ax=ax,
         contourOpts={"cmap": "bwr"}
     )
-    ax.set_title("Gravity Anomaly (Z-component)")
-    ax.set_xlabel("x (m)")
-    ax.set_ylabel("y (m)")
-    plt.colorbar(quadcont, format="%.0g", pad=0.03, label="Anomaly (mgal)")
+    if axlabels:
+        ax.set_title("Gravity Anomaly (Z-component)")
+        ax.set_xlabel("x (m)")
+        ax.set_ylabel("y (m)")
+        colorbar_label = "Anomaly (mgal)"
+    else:
+        colorbar_label = ""
+    if colorbar:
+        plt.colorbar(quadcont, format="%.0g", pad=0.03, label=colorbar_label)
     if show:
         plt.show()
 
@@ -268,7 +279,7 @@ class DiscreteGravity:
         :param *args: arguments to pass to gfunc
         :return: np.array of voxelized rock properties
         """
-        self.voxmodel = self.gfunc(self.mesh.gridCC, *args)
+        self.voxmodel = np.array(self.gfunc(self.mesh.gridCC, *args))
         return self.voxmodel
 
     def calc_gravity(self, *args):
