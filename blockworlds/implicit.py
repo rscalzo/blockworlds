@@ -346,8 +346,8 @@ def gen_two_fault_model_demo(pars):
     :param pars: np.array of shape (15,)
     :return: GeoHistory instance
     """
-    (rho_0, dz_1, rho_1, dz_2, rho_2,  # stratigraphy
-     x0_3, y0_3, nth_3, nph_3, s_3,  # 1st fault
+    (rho_0, dz_1, rho_1, dz_2, rho_2,       # stratigraphy
+     x0_3, y0_3, nth_3, nph_3, s_3,         # 1st fault
      x0_4, y0_4, nth_4, nph_4, s_4) = pars  # 2nd fault
 
     # Initialize a new history and set the prior means at the values of the
@@ -362,30 +362,84 @@ def gen_two_fault_model_demo(pars):
     )
     history.add_event(
         StratLayerEvent(
-            [('thickness', UniGaussianDist(mean=dz_1, std=300.0)),
-             ('density', UniGaussianDist(mean=rho_1, std=0.5))]
+            [('thickness', UniGaussianDist(mean=dz_1, std=50.0)),
+             ('density', UniGaussianDist(mean=rho_1, std=0.1))]
         )
     )
     history.add_event(
         StratLayerEvent(
-            [('thickness', UniGaussianDist(mean=dz_2, std=300.0)),
-             ('density', UniGaussianDist(mean=rho_2, std=0.5))]
+            [('thickness', UniGaussianDist(mean=dz_2, std=50.0)),
+             ('density', UniGaussianDist(mean=rho_2, std=0.1))]
         )
     )
     history.add_event(
         PlanarFaultEvent(
-            [('x0', UniGaussianDist(mean=x0_3, std=100.0)),
-             ('y0', UniGaussianDist(mean=y0_3, std=100.0)),
-             ('nth', 'nph', vMFDist(th0=nth_3, ph0=nph_3, kappa=100)),
-             ('s', UniformDist(mean=s_3, width=1000.0))]
+            [('x0', UniGaussianDist(mean=x0_3, std=1.0)),
+             ('y0', UniGaussianDist(mean=y0_3, std=1.0)),
+             ('nth', 'nph', vMFDist(th0=nth_3, ph0=nph_3, kappa=25)),
+             ('s', UniGaussianDist(mean=s_3, std=150.0))]
         )
     )
     history.add_event(
         PlanarFaultEvent(
-            [('x0', UniGaussianDist(mean=x0_4, std=100.0)),
-             ('y0', UniGaussianDist(mean=y0_4, std=100.0)),
+            [('x0', UniGaussianDist(mean=x0_4, std=1.0)),
+             ('y0', UniGaussianDist(mean=y0_4, std=1.0)),
+             ('nth', 'nph', vMFDist(th0=nth_4, ph0=nph_4, kappa=25)),
+             ('s', UniGaussianDist(mean=s_4, std=150.0))]
+        )
+    )
+    return history
+
+
+def gen_fold_model_demo(pars):
+    """
+    Generate a demo model with three stratigraphic layers, a fold and a fault
+    (16 parameters), based on some starting parameter values as provided by
+    Mark Lindsay.
+    :param pars: np.array of shape (16,)
+    :return: GeoHistory instance
+    """
+    (rho_0, dz_1, rho_1, dz_2, rho_2,       # stratigraphy
+     nth_3, nph_3, psi_3, phi_3, L_3, A_3,  # fold
+     x0_4, y0_4, nth_4, nph_4, s_4) = pars  # fault
+
+    # Initialize a new history and set the prior means at the values of the
+    # true parameters.  This implicitly makes us assume we're within the
+    # support of the prior throughout, so if we want to investigate possible
+    # prior misspecification we'll have to modify or supplant this.
+    history = GeoHistory()
+    history.add_event(
+        BasementEvent(
+            [('density', UniGaussianDist(mean=rho_0, std=0.5))]
+        )
+    )
+    history.add_event(
+        StratLayerEvent(
+            [('thickness', UniGaussianDist(mean=dz_1, std=50.0)),
+             ('density', UniGaussianDist(mean=rho_1, std=0.1))]
+        )
+    )
+    history.add_event(
+        StratLayerEvent(
+            [('thickness', UniGaussianDist(mean=dz_2, std=50.0)),
+             ('density', UniGaussianDist(mean=rho_2, std=0.1))]
+        )
+    )
+    history.add_event(
+        FoldEvent(
+            [('nth', 'nph', vMFDist(th0=nth_3, ph0=nph_3, kappa=500)),
+             ('pitch', UniGaussianDist(mean=psi_3, std=1.0)),
+             ('phase', UniGaussianDist(mean=phi_3, std=1.0)),
+             ('wavelength', UniGaussianDist(mean=L_3, std=50.0)),
+             ('amplitude', UniGaussianDist(mean=A_3, std=5.0))]
+        )
+    )
+    history.add_event(
+        PlanarFaultEvent(
+            [('x0', UniGaussianDist(mean=x0_4, std=1.0)),
+             ('y0', UniGaussianDist(mean=y0_4, std=1.0)),
              ('nth', 'nph', vMFDist(th0=nth_4, ph0=nph_4, kappa=100)),
-             ('s', UniformDist(mean=s_4, width=1000.0))]
+             ('s', UniGaussianDist(mean=s_4, std=15.0))]
         )
     )
     return history
