@@ -14,6 +14,9 @@ riemann-soc.txt
 *.dvi
 *.ps
 
+# Pickles
+*.pkl
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
