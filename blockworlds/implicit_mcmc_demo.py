@@ -12,102 +12,166 @@ import matplotlib.pyplot as plt
 import scipy.special as sp
 from blockworlds import profile_timer, DiscreteGravity
 from blockworlds import baseline_tensor_mesh, survey_gridded_locations
-from blockworlds import gen_two_fault_model_demo, gen_fold_model_demo
+from implicit import UniLognormDist
+from implicit import gen_two_fault_model_demo, gen_fold_model_demo
 from riemann import Sampler, Model
 from riemann.proposals.randomwalk import AdaptiveMetropolisRandomWalk as AMRW
 from riemann.samplers.ptsampler import PTSampler
+import re
 import pickle
 import emcee
 
 
-# Reproducible random numbers
-np.random.seed(413)
+# Model configuration classes for easy running, to make sure the baseline
+# configuration information is always grouped with the right kind of model
+
+class FaultModelConfig(object):
+
+    def __init__(self, model_index, parvals):
+        # Spatial extent (m) and resolution (# of elements) of model volume
+        self.L, self.NL = 1000.0, 15
+        # Characteristic initial-guess step sizes for MCMC
+        self.stepsizes = np.array([0.1, 10.0, 0.02, 10.0, 0.02,
+                                   0.2, 0.2, 3.0, 3.0, 30.0,
+                                   0.2, 0.2, 3.0, 3.0, 30.0])
+        # Labels for plots
+        self.parnames = [
+            "Basement Density (g cm$^{-3}$)",
+            "Layer 1 Thickness (m)",
+            "Layer 1 Density (g cm$^{-3}$)",
+            "Layer 2 Thickness (m)",
+            "Layer 2 Density (g cm$^{-3}$)",
+            "Fault 1 Contact X Position (m)",
+            "Fault 1 Contact Y Position (m)",
+            "Fault 1 Polar Elevation (deg)",
+            "Fault 1 Polar Azimuth (deg)",
+            "Fault 1 Dip-Direction Slip (m)",
+            "Fault 2 Contact X Position (m)",
+            "Fault 2 Contact Y Position (m)",
+            "Fault 2 Polar Elevation (deg)",
+            "Fault 2 Polar Azimuth (deg)",
+            "Fault 2 Dip-Direction Slip (m)",
+        ]
+        # List of 2-D diagnostic posterior slice plots; each row contains
+        # two parameter indices and two plot extents in that parameter's units
+        self.sliceplotlist = [
+            [1,  3, 600.0, 200.0],  # widths of layers on top of basement
+            [7, 12,  25.0,  25.0],  # the two fault elevation angles
+            [9, 14, 200.0, 200.0],  # the two fault displacements
+            [3,  7, 200.0,  25.0],  # layer width vs elevation angle
+            [3, 14, 200.0, 200.0],  # layer width vs displacement
+            [7, 14,  25.0, 200.0],  # elevation angle vs displacement
+        ]
+
+        # Sanity check & initialize
+        if len(parvals) != len(self.parnames):
+            n = self.__class__.__name__
+            raise IndexError('len(parvals) != len(parnames) in {}'.format(n))
+        self.parvals = parvals
+        self.model_index = model_index
+
+    def geohist(self):
+        history = gen_two_fault_model_demo(self.parvals)
+        history.deserialize(self.parvals)
+        return history
+
+
+class FoldModelConfig(object):
+
+    def __init__(self, model_index, parvals):
+        self.L, self.NL = 1000.0, 15
+        # Characteristic initial-guess step sizes for MCMC
+        self.stepsizes = np.array([0.1, 10.0, 0.02, 10.0, 0.02,
+                                   0.6, 0.6, 0.2, 0.2, 10.0, 2.0,
+                                   0.2, 0.2, 3.0, 3.0, 30.0])
+        # Labels for plots
+        self.parnames = [
+            "Basement Density (g cm$^{-3}$)",   # 0
+            "Layer 1 Thickness (m)",            # 1
+            "Layer 1 Density (g cm$^{-3}$)",    # 2
+            "Layer 2 Thickness (m)",            # 3
+            "Layer 2 Density (g cm$^{-3}$)",    # 4
+            "Fold 1 Axis Elevation (deg)",      # 5
+            "Fold 1 Axis Azimuth (deg)",        # 6
+            "Fold 1 Pitch Angle (deg)",         # 7
+            "Fold 1 Phase Angle (deg)",         # 8
+            "Fold 1 Wavelength (m)",            # 9
+            "Fold 1 Amplitude (m)",             # 10
+            "Fault 1 Contact X Position (m)",   # 11
+            "Fault 1 Contact Y Position (m)",   # 12
+            "Fault 1 Polar Elevation (deg)",    # 13
+            "Fault 1 Polar Azimuth (deg)",      # 14
+            "Fault 1 Dip-Direction Slip (m)",   # 15
+        ]
+        # List of 2-D diagnostic posterior slice plots; each row contains
+        # two parameter indices and two plot extents in that parameter's units
+        self.sliceplotlist = [
+            [1,  3, 200.0, 100.0],  # widths of layers on top of basement
+            [5,  6,  25.0,  25.0],  # the fold axis orientation
+            [9, 10, 200.0, 200.0],  # fold wavelength vs amplitude
+            [3,  5, 100.0,  25.0],  # layer width vs fold elevation
+            [3, 15, 100.0, 200.0],  # layer width vs fault displacement
+            [5, 15,  25.0, 200.0],  # fold elevation vs fault displacement
+        ]
+
+        # Sanity check & initialize
+        if len(parvals) != len(self.parnames):
+            n = self.__class__.__name__
+            raise IndexError('len(parvals) != len(parnames) in {}'.format(n))
+        self.parvals = parvals
+        self.model_index = model_index
+
+    def geohist(self):
+        history = gen_fold_model_demo(self.parvals)
+        history.deserialize(self.parvals)
+        return history
+
 
 # True values of parameters for various demo models
-fault_model_pars = np.array([
+
+fault_model_confs = [
     # Original graben model
-    [3.0, 350.0, 2.5, 190.0, 2.0,           # layer densities and thicknesses
-     -400.0, 0.0, +20.0, 0.0, -220.0,       # 1st fault x0, y0, theta, phi, s
-     +400.0, 0.0, -20.0, 0.0, +220.0],      # 2nd fault x0, y0, theta, phi, s
+    FaultModelConfig(0, [3.0, 350.0, 2.5, 190.0, 2.0,           # stratigraphy
+                         -400.0, 0.0, +20.0, 0.0, -220.0,       # 1st fault
+                         +400.0, 0.0, -20.0, 0.0, +220.0], ),   # 2nd fault
     # Mark Lindsay's implicit model 1
-    [3.0, 350.0, 2.5, 190.0, 2.0,
-     -400.0, 0.0, +45.0, 0.0, -220.0,
-     +400.0, 0.0, -45.0, 0.0, +220.0],
+    FaultModelConfig(1, [3.0, 350.0, 2.5, 190.0, 2.0,
+                         -400.0, 0.0, +45.0, 0.0, -220.0,
+                         +400.0, 0.0, -45.0, 0.0, +220.0], ),
     # Mark Lindsay's implicit model 2
-    [3.0, 350.0, 2.5, 190.0, 2.0,
-     -450.0, 0.0, 45.0, 0.0, -220.0,
-      +50.0, 0.0, 20.0, 0.0, +220.0],
+    FaultModelConfig(2, [3.0, 350.0, 2.5, 190.0, 2.0,
+                         -450.0, 0.0, 45.0, 0.0, -220.0,
+                         +50.0, 0.0, 20.0, 0.0, +220.0], ),
     # Mark Lindsay's implicit model 3
-    [3.0, 350.0, 2.5, 190.0, 2.0,
-     -50.0, 0.0, -20.0, 0.0, -220.0,
-     +50.0, 0.0, 20.0, 0.0, +220.0],
+    FaultModelConfig(3, [3.0, 350.0, 2.5, 190.0, 2.0,
+                         -50.0, 0.0, -20.0, 0.0, -220.0,
+                         +50.0, 0.0, 20.0, 0.0, +220.0], ),
     # Mark Lindsay's implicit model 4
-    [3.0, 350.0, 2.5, 190.0, 2.0,
-     -250.0, 0.0, 0.0, 0.0, -220.0,
-     +250.0, 0.0, 0.0, 0.0, +220.0],
+    FaultModelConfig(4, [3.0, 350.0, 2.5, 190.0, 2.0,
+                         -250.0, 0.0, 0.0, 0.0, -220.0,
+                         +250.0, 0.0, 0.0, 0.0, +220.0], ),
     # Mark Lindsay's implicit model 5
-    [3.0, 350.0, 2.5, 190.0, 2.0,
-     -450.0, 0.0, 30.0, 0.0, 220.0,
-     +50.0, 0.0, 10.0, 0.0, -220.0],
+    FaultModelConfig(5, [3.0, 350.0, 2.5, 190.0, 2.0,
+                         -450.0, 0.0, 30.0, 0.0, 220.0,
+                         +50.0, 0.0, 10.0, 0.0, -220.0], ),
     # Mark Lindsay's implicit model 6
-    [3.0, 350.0, 2.5, 190.0, 2.0,
-     -400.0, 0.0, 20.0, 0.0, 220.0,
-     -300.0, 0.0, 40.0, 0.0, -220.0],
+    FaultModelConfig(6, [3.0, 350.0, 2.5, 190.0, 2.0,
+                         -400.0, 0.0, 20.0, 0.0, 220.0,
+                         -300.0, 0.0, 40.0, 0.0, -220.0], ),
     # Mark Lindsay's implicit model 7
-    [3.0, 350.0, 2.5, 190.0, 2.0,
-     -400.0, 0.0, 20.0, 0.0, 140.0,
-     -300.0, 0.0, 40.0, 0.0, 80.0],
-])
-
-# Labels for plots
-fault_model_parnames = [
-    "Basement Density (g cm$^{-3}$)",
-    "Layer 1 Thickness (m)",
-    "Layer 1 Density (g cm$^{-3}$)",
-    "Layer 2 Thickness (m)",
-    "Layer 2 Density (g cm$^{-3}$)",
-    "Fault 1 Contact X Position (m)",
-    "Fault 1 Contact Y Position (m)",
-    "Fault 1 Polar Elevation (deg)",
-    "Fault 1 Polar Azimuth (deg)",
-    "Fault 1 Dip-Direction Slip (m)",
-    "Fault 2 Contact X Position (m)",
-    "Fault 2 Contact Y Position (m)",
-    "Fault 2 Polar Elevation (deg)",
-    "Fault 2 Polar Azimuth (deg)",
-    "Fault 2 Dip-Direction Slip (m)",
+    FaultModelConfig(7, [3.0, 350.0, 2.5, 190.0, 2.0,
+                         -400.0, 0.0, 20.0, 0.0, 140.0,
+                         -300.0, 0.0, 40.0, 0.0, 80.0], ),
 ]
 
-# Characteristic initial-guess step sizes for MCMC
-stepsizes = np.array([0.1, 10.0, 0.02, 10.0, 0.02,
-                      0.2, 0.2, 3.0, 3.0, 30.0,
-                      0.2, 0.2, 3.0, 3.0, 30.0])
-
-# Mark Lindsay's fold model
-fold_model_pars = np.array([
-    [3.0, 350.0, 2.5, 190.0, 2.0,
-     0.0, 0.0, 0.0, 0.0, 1000.0, 100.0,
-     250.0, 0.0, -205.0, 0.0, 200.0]
-])
-
-fold_model_parnames = [
-    "Basement Density (g cm$^{-3}$)",
-    "Layer 1 Thickness (m)",
-    "Layer 1 Density (g cm$^{-3}$)",
-    "Layer 2 Thickness (m)",
-    "Layer 2 Density (g cm$^{-3}$)",
-    "Fold 1 Axis Elevation (deg)",
-    "Fold 1 Axis Azimuth (deg)",
-    "Fold 1 Pitch Angle (deg)",
-    "Fold 1 Phase Angle (deg)",
-    "Fold 1 Wavelength (m)",
-    "Fold 1 Amplitude (m)",
-    "Fault 1 Contact X Position (m)",
-    "Fault 1 Contact Y Position (m)",
-    "Fault 1 Polar Elevation (deg)",
-    "Fault 1 Polar Azimuth (deg)",
-    "Fault 1 Dip-Direction Slip (m)",
+fold_model_confs = [
+    # Mark Lindsay's implicit model 8
+    FoldModelConfig(8, [3.0, 350.0, 2.5, 190.0, 2.0,            # stratigraphy
+                        0.0, 0.0, 0.0, 0.0, 1000.0, 100.0,      # 1st fold
+                        250.0, 0.0, -205.0, 0.0, 200.0], ),     # 1st fault
 ]
+
+geo_model_confs = fault_model_confs + fold_model_confs
 
 
 # ============================================================================
@@ -168,21 +232,21 @@ class GeoModel(Model):
         return self.history.logprior()
 
 
-def initialize_geomodel(pars, L, NL, foldhistory=False):
+def initialize_geomodel(gconf):  # pars, L, NL, foldhistory=False):
     """
     Initialize a GeoModel instance and get it ready for sampling
     :param pars: parameter vector (see top of file)
     :return: GeoModel instance ready for sampling with riemann
     """
     # Initialize a mesh for forward gravity calculation
+    L, NL = gconf.L, gconf.NL
     z0, h = 0.0, L / NL
     print("z0, L, nL, h =", z0, L, NL, h)
     mesh = baseline_tensor_mesh(NL, h, centering='CCN')
     survey = survey_gridded_locations(L, L, 20, 20, z0)
 
     # Initialize a GeoHistory based on the parameters passed in
-    history = gen_two_fault_model_demo(pars)
-    history.deserialize(pars)
+    history = gconf.geohist()
 
     # Initialize a DiscreteGravity forward model instance
     fwdmodel = DiscreteGravity(mesh, survey, history.rockprops)
@@ -195,7 +259,9 @@ def initialize_geomodel(pars, L, NL, foldhistory=False):
     dsynth = data0 + epsilon
 
     # Construct and return a GeoModel
-    return GeoModel(history, fwdmodel, dsynth, sigdata, alpha=2.5)
+    mymodel = GeoModel(history, fwdmodel, dsynth, sigdata, alpha=2.5)
+    mymodel.stepsizes = gconf.stepsizes
+    return mymodel
 
 def run_mcmc(model, Nsamp=100000, Nburn=20000, Nthin=100, temper=False):
     """
@@ -206,7 +272,8 @@ def run_mcmc(model, Nsamp=100000, Nburn=20000, Nthin=100, temper=False):
     print("run_mcmc: running chain...")
     model.history.set_to_prior_draw()
     histpars = model.history.serialize()
-    proposal = AMRW(0.1 * np.diag(stepsizes), 100, marginalize=False)
+    proposal = AMRW(0.1 * np.diag(model.stepsizes), 1000, marginalize=False,
+                    smooth_adapt=False)
     if temper:
         sampler = PTSampler(model, proposal, np.array(histpars),
                             betas=0.5**np.arange(10))
@@ -276,7 +343,7 @@ def run_grid(my_model, p1_vals, p2_vals, p1_idx, p2_idx):
     grid_vals = np.array(grid_vals).T.reshape(3, len(p1_vals), len(p2_vals))
     return grid_vals
 
-def show_contours(xg, yg, Lg, p1_vals, p2_vals, p1_0, p2_0):
+def show_contours(xg, yg, Lg, p1_vals, p2_vals, p1_0, p2_0, showtitle=False):
     levels = 10**np.arange(-6,0.1)
     levels = np.arange(-6,0.1)
     # plt.contourf(xg, yg, np.exp(Lg - Lg.max()), levels=levels)
@@ -285,15 +352,16 @@ def show_contours(xg, yg, Lg, p1_vals, p2_vals, p1_0, p2_0):
     ax = plt.gca()
     ax.set_xlim(p1_vals.min(), p1_vals.max())
     ax.set_ylim(p2_vals.min(), p2_vals.max())
-    ax.set_title("$\log_{10} P(\\theta|d)/P(\\theta_\mathrm{MAP}|d)$")
+    if showtitle:
+        ax.set_title("$\log_{10} P(\\theta|d)/P(\\theta_\mathrm{MAP}|d)$")
 
-def vet_slice(my_model, z1_idx, z2_idx, zdelt1, zdelt2, Nz):
+def vet_slice(my_model, z1_idx, z2_idx, zdelt1, zdelt2, Nz, showtitle=False):
     histpars = np.array(my_model.history.serialize())
     z1_0, z2_0 = histpars[z1_idx], histpars[z2_idx]
     z1_vals = np.linspace(z1_0-0.5*zdelt1, z1_0+0.5*zdelt1, Nz)
     z2_vals = np.linspace(z2_0-0.5*zdelt2, z2_0+0.5*zdelt2, Nz)
     xg, yg, Lg = profile_timer(run_grid, my_model, z1_vals, z2_vals, z1_idx, z2_idx)
-    show_contours(xg, yg, Lg, z1_vals, z2_vals, z1_0, z2_0)
+    show_contours(xg, yg, Lg, z1_vals, z2_vals, z1_0, z2_0, showtitle=showtitle)
     return xg, yg, Lg
 
 
@@ -302,25 +370,36 @@ def vet_slice(my_model, z1_idx, z2_idx, zdelt1, zdelt2, Nz):
 # ============================================================================
 
 
-def run_fault_model_sampling():
-    L, NL = 1000.0, 15
+def run_model_sampling(model_config_list):
+    """
+    :param model_configlist: list of GeoModelConfig objects
+    :return: nothing
+    """
     M, Nsamp, Nburn, Nthin, temper = 4, 100000, 20000, 10, False
     model_chains_h0, model_chains_h1 = [ ], [ ]
     estimated_model_runtime = M * Nsamp * 360/1e+5
     if temper:
         estimated_model_runtime *= 10
-    estimated_total_runtime = 2 * len(fault_model_pars) * estimated_model_runtime
+    estimated_total_runtime = 2 * len(model_config_list) * estimated_model_runtime
     print("starting experimental run")
     print("estimated model run time: {:.2} s".format(estimated_model_runtime))
     print("estimated total run time: {:.2} s".format(estimated_total_runtime))
-    for i, pars in enumerate(fault_model_pars):
+    for gconf in model_config_list:
+        # Post-process azimuthal variables in chain (compass headings)
+        # to identify -180 ~ +180 so that diagnostic criteria don't break
+        azidx = np.array([j for j in range(len(gconf.parnames))
+                          if re.search("Azimuth", gconf.parnames[j])])
         # Initialize model and grab the mesh cell size
-        model = initialize_geomodel(pars, L, NL)
-        basefname = "implicit_{}_chains".format(i)
+        model = initialize_geomodel(gconf)
+        basefname = "implicit_{}_chains".format(gconf.model_index)
+        print("Sampling for set", basefname)
         # Sample first with anti-aliasing on
         print("anti-aliasing ON:  model.h =", model.h)
         chains = np.array([run_mcmc(model, Nsamp, Nburn, Nthin, temper=temper)
                            for i in range(M)])
+        for j in azidx:     # convert angles to domain (-180, 180)
+            chains[:,:,j] = (chains[:,:,j] + 180) % 360 - 180
+        # Append to chain and move on
         model_chains_h1.append(np.array(chains))
         print("chains_h1.shape =", chains.shape)
         print("gelman_rubin(): Rhat = {}".format(gelman_rubin(chains)))
@@ -331,6 +410,8 @@ def run_fault_model_sampling():
         print("anti-aliasing OFF:  model.h =", model.h)
         chains = np.array([run_mcmc(model, Nsamp, Nburn, Nthin, temper=temper)
                            for i in range(M)])
+        for j in azidx:     # convert angles to domain (-180, 180)
+            chains[:,:,j] = (chains[:,:,j] + 180) % 360 - 180
         model_chains_h0.append(np.array(chains))
         print("chains_h0.shape =", chains.shape)
         print("gelman_rubin(): Rhat = {}".format(gelman_rubin(chains)))
@@ -338,21 +419,11 @@ def run_fault_model_sampling():
         with open(basefname + "_h0.pkl", 'wb') as pklfile:
             pickle.dump(np.array(chains), pklfile)
 
-    with open("model_chains_h1.pkl", 'wb') as pklfile:
-        pickle.dump(np.array(model_chains_h1), pklfile)
-    with open("model_chains_h0.pkl", 'wb') as pklfile:
-        pickle.dump(np.array(model_chains_h0), pklfile)
-
-def run_fold_model_sampling():
-    L, NL = 1000.0, 30
-    M, Nsamp, Nburn, Nthin, temper = 4, 100000, 20000, 10, False
-    model_chains_h0, model_chains_h1 = [ ], [ ]
-    estimated_model_runtime = M * Nsamp * 360/1e+5
-
-def sampling_table():
+def sampling_table(model_config_list):
     output = ""
-    for i, pars in enumerate(fault_model_pars):
-        basefname = "implicit_{}_chains".format(i)
+    for gconf in model_config_list:
+        i = gconf.model_index
+        basefname = "sliceplots/slices_4col_refinex5_B/implicit_{}_chains".format(i)
         for h in range(2):
             akalabels = ['   ', '-AA']
             ext =  "_h{}.pkl".format(h)
@@ -363,6 +434,7 @@ def sampling_table():
                 taus = np.array(taus) * 0.01
                 tmean, tmin, tmax = np.mean(taus), np.min(taus), np.max(taus)
                 Rhat = gelman_rubin(chains)
+                print(">> Rhat:  {}".format(Rhat))
                 Rmean, Rmin, Rmax = np.mean(Rhat), np.min(Rhat), np.max(Rhat)
                 output += (
                     "    {}{} & {:.1f} ({:.1f}, {:.1f}) $\\times 10^{{3}}$"
@@ -371,18 +443,48 @@ def sampling_table():
                 )
     print(output)
 
-def traceplots(basepklfname):
+def prior_table(model_config_list):
+    """
+    WATCH OUT, this procedure only accepts lists of GeoModelConfigs with the
+    same underlying type of history!  This is to make sure the tabular form
+    is square and has a well-defined number of rows and columns.
+    :param model_config_list: list of model configs
+    :return: text output string
+    """
+    output = ""
+    model_parnames = model_config_list[0].parnames
+    for i, parname in enumerate(model_parnames):
+        output += "{:<35}".format(parname)
+        for gconf in model_config_list:
+            pars = gconf.parvals
+            if abs(pars[i]) < 10 and abs(pars[i]) > 1e-12:
+                output += "& ${:4.1f}$ ".format(pars[i])
+            else:
+                output += "& ${:4.0f}$ ".format(pars[i])
+        output += "\\\\\n"
+    print(output)
+    return output
+
+def traceplots(basepklfname, gconf):
     """
     Make some trace plots for the paper
     :param pklfname: filename for pickled chains
     :return: N/A
     """
+    model_parnames, model_index = gconf.parnames, gconf.model_index
+    print("azidx =", azidx)
     # Chains array is of shape [Nchains, Nsamples, Npars]
     with open(basepklfname + "_h0.pkl", 'rb') as pklfile:
         chains_h0 = pickle.load(pklfile)
     with open(basepklfname + "_h1.pkl", 'rb') as pklfile:
         chains_h1 = pickle.load(pklfile)
-    for i, ylabel in enumerate(fault_model_parnames):
+    for i, ylabel in enumerate(model_parnames):
+        """
+        if i in azidx:
+            print(chains_h0[0,:,i])
+            plt.hist(chains_h0[:,:,i].T, bins=50)
+            plt.show()
+        """
         plt.figure(figsize=(5,7))
         plt.subplot(2, 1, 1)
         plt.plot(chains_h0[:,:,i].T)
@@ -398,13 +500,19 @@ def traceplots(basepklfname):
         plt.savefig("implicit_5_trace_{}.eps".format(i))
         # plt.show()
 
-def slice_figures(model_idx):
+def slice_figures(gconf):
+
+    # Don't make us re-do any of these scans if we don't have to
+    model_idx = gconf.model_index
+    pklfn = "sliceplots/implicit_{}_slices.pkl".format(model_idx)
+    pklfn = "implicit_{}_slices.pkl".format(model_idx)
 
     # Initialize two GeoModels at different resolutions but same parameters
-    L, NL, xmag, Nz = 1000.0, 15, 5, 30
-    geopars = fault_model_pars[model_idx]
-    model = initialize_geomodel(geopars, L, NL)
-    model_hires = initialize_geomodel(geopars, L, NL*xmag)
+    L, NL, Nz = gconf.L, gconf.NL, 30
+    model = initialize_geomodel(gconf)
+    gconf.NL = 75
+    model_hires = initialize_geomodel(gconf)
+    gconf.NL = NL
     # Extract the forward models from these and make the data agree
     model.dsynth = model_hires.dsynth
 
@@ -414,15 +522,9 @@ def slice_figures(model_idx):
     akasettings = [False, False, True, True]
 
     # Actual parameters passed to plotting routine
-    sliceparlist = [
-        (model, 1,  3, 600.0, 200.0, Nz), # widths of layers on top of basement
-        (model, 7, 12,  25.0,  25.0, Nz), # the two fault elevation angles
-        (model, 9, 14, 200.0, 200.0, Nz), # the two fault displacements
-        (model, 3,  7, 200.0,  25.0, Nz), # layer width vs elevation angle
-        (model, 3, 14, 200.0, 200.0, Nz), # layer width vs displacement
-        (model, 7, 14,  25.0, 200.0, Nz), # elevation angle vs displacement
-    ]
-    rowlabels = "abcdef"
+    # See GeoConf definitions at top of file for actual slices plotted
+    sliceparlist = [ [model] + row + [Nz] for row in gconf.sliceplotlist ]
+    rowlabels = "abcdefghijklmnopqrstuvwxyz"
     collabels = ["Coarse Aliased", "Fine Aliased",
                  "Coarse Anti-Aliased", "Fine Anti-Aliased"]
 
@@ -444,6 +546,17 @@ def slice_figures(model_idx):
         else:
             plt.ylabel("")
 
+    # On last plot, add labels to stratigraphic layers; a bit of a hack,
+    # but all the models have 3 layers so it should be roughly fine
+    if model_idx < 5:
+        plt.text(-450, -950, 'Basement', ha='left', color='b', size=12)
+        plt.text(-450, -500, 'Layer 1', ha='left', color='k', size=12)
+        plt.text(-450, -150, 'Layer 2', ha='left', color='white', size=12)
+    else:
+        plt.text(450, -950, 'Basement', ha='right', color='b', size=12)
+        plt.text(450, -450, 'Layer 1', ha='right', color='k', size=12)
+        plt.text(450, -100, 'Layer 2', ha='right', color='white', size=12)
+
     # plt.subplots_adjust(top=0.85, bottom=0.15, hspace=0.35, wspace=0.35)
     plt.subplots_adjust(bottom=0.2, left=0.08, right=0.92, wspace=0.35)
     figfn = "sliceplots/implicit_{}_slices.eps".format(model_idx)
@@ -458,10 +571,16 @@ def slice_figures(model_idx):
             model.set_fwdmodel(fm)
             model.set_antialiasing(aka)
             ax = plt.subplot(1, len(fwdmodels), i + 1)
-            xgji, ygji, Lgji = vet_slice(*slicepars)
-            plt.xlabel(fault_model_parnames[slicepars[1]])
+            xgji, ygji, Lgji = vet_slice(*slicepars, showtitle=False)
+            plt.xlabel(gconf.parnames[slicepars[1]])
             if i == 0:
-                plt.ylabel(fault_model_parnames[slicepars[2]])
+                plt.ylabel(gconf.parnames[slicepars[2]])
+            # Mark true values
+            truepars = model.history.serialize()
+            x0 = truepars[slicepars[1]]
+            y0 = truepars[slicepars[2]]
+            plt.plot(x0, y0, marker='+', ms=15, mew=3, color='red')
+            # Save to final list
             args.append(slicepars[1:])
             xg.append(xgji)
             yg.append(ygji)
@@ -477,10 +596,28 @@ def slice_figures(model_idx):
         pickle.dump([xg, yg, Lg, args], pklfile)
 
 
-if __name__ == "__main__":
-    # for model_idx in range(len(fault_model_pars)):
-    #     slice_figures(model_idx)
-    # profile_timer(run_fault_model_sampling)
-    traceplots("chainplots/amrw_stepsize=v2_thin10_t5/implicit_5_chains")
-    # traceplots("chainplots/amrw_stepsize=v2_thin10_t5/implicit_5_chains")
+def testlognorm():
+    N, L, Nbins = 1000000, 5, 100
+    dx = L/Nbins
+    prior = UniLognormDist(mean=2.0, std=0.1)
+    data = prior.sample(N)
+    print("data.mean, data.std =", data.mean(), data.std())
+    x = np.arange(0.0, 5.0 + dx, dx)
+    plt.hist(data, range=(0,5), bins=Nbins)
+    plt.plot(x, N*dx*np.exp(prior(x)))
+    plt.show()
 
+
+if __name__ == "__main__":
+    # Re-run MCMC experiments
+    # profile_timer(run_model_sampling, fault_model_confs + fold_model_confs)
+    # for gconf in (fault_model_confs + fold_model_confs):
+    #     slice_figures(gconf)
+    # slice_figures(fold_model_confs[0])
+    sampling_table(fold_model_confs)
+    # prior_table(fold_model_confs)
+    # ----- UNTESTED WITH NEW VERSION -----
+    # testlognorm()
+    # traceplots("chainplots/amrw_stepsize=v2_thin10_t5/implicit_8_chains",
+    #            fold_model_confs[0])
+    # traceplots("implicit_5_chains")
