@@ -172,10 +172,12 @@ class GaussianProcessAntialiasing:
         Y[Y > 1] = 1.0
         return Y.ravel()
 
-def compare_antialiasing(N_features_gp=3, vertical=False):
+def compare_antialiasing(N_features_gp=3, vertical=False, histlogy=False):
     """
     Demo different functional forms for antialiasing
     :param N_features_gp: number of GP features to use (1, 2, or 3)
+    :param vertical: stack plots vertically (True) or side by side (False)?
+    :param histlogy: use logarithmic y-axis for histogram? (default False)
     :return: nothing (yet)
     """
 
@@ -223,28 +225,33 @@ def compare_antialiasing(N_features_gp=3, vertical=False):
         plt.plot(x[idx], y[idx], c='gray', lw=0.5)
     x = np.linspace(-1.0, 1.0, 41)
     plt.plot(x, parpV1(x), c='r', lw=2, ls='--', label="piecewise")
-    plt.plot(x, parpV2(x), c='b', lw=2, ls='--', label="GLM")
+    plt.plot(x, parpV2(x), c='b', lw=2, ls='--', label="linear model")
     plt.plot(x, parpV3(x,gp), c='g', lw=2, ls='--',
              label="GP ($N_\mathrm{{pars}} = {}$)".format(N_features_gp))
     plt.xlabel("Coverage Parameter $(\mathbf{r_0 \cdot n})/h$")
     plt.ylabel("Cumulative Partial Volume / $h^3$")
     plt.legend()
+
+    # Histograms
+    Nhistbins = 50
+    histrange = (-0.1, 0.1)
     plt.subplot(212)
-    plt.hist(resids1, bins=50, range=(-0.1, 0.1),
+    plt.hist(resids1, bins=Nhistbins, range=histrange, log=histlogy,
              color='r', alpha=0.5, label='piecewise')
-    plt.hist(resids2, bins=50, range=(-0.1, 0.1),
-             color='b', alpha=0.5, label='GLM')
-    plt.hist(resids3, bins=50, range=(-0.1, 0.1), color='g', alpha=0.5,
+    plt.hist(resids2, bins=Nhistbins, range=histrange, log=histlogy,
+             color='b', alpha=0.5, label='linear model')
+    plt.hist(resids3, bins=Nhistbins, range=histrange, log=histlogy,
+             color='g', alpha=0.5,
              label="GP ($N_\mathrm{{pars}} = {}$)".format(N_features_gp))
-    print("resids(piecewise) mean, std, mad, max "
+    print("resids(piecewise)    mean, std, mad, max "
           "= {:.3g}, {:.3g}, {:.3g}, {:.3g}"
           .format(np.mean(resids1), np.std(resids1),
                   np.mean(np.abs(resids1)), np.max(np.abs(resids1))))
-    print("resids(GLM)       mean, std, mad, max "
+    print("resids(linear model) mean, std, mad, max "
           "= {:.3g}, {:.3g}, {:.3g}, {:.3g}"
           .format(np.mean(resids2), np.std(resids2),
                   np.mean(np.abs(resids2)), np.max(np.abs(resids2))))
-    print("resids(GP)        mean, std, mad, max "
+    print("resids(GP)           mean, std, mad, max "
           "= {:.3g}, {:.3g}, {:.3g}, {:.3g}"
           .format(np.mean(resids3), np.std(resids3),
                   np.mean(np.abs(resids3)), np.max(np.abs(resids3))))
@@ -263,7 +270,7 @@ def compare_antialiasing(N_features_gp=3, vertical=False):
     plt.show()
 
 
-def fit_glm_antialiasing():
+def fit_antialiasing():
     """
     Look for alternative models that can deliver GP-like accuracy, quickly
     :return: nothing (yet)
@@ -307,49 +314,63 @@ def fit_glm_antialiasing():
     def selected_features(X):
         rdotn, tanth, tanph = X.T
         # Odd terms in rdot; even terms in tanth and tanph
-        Xp = np.hstack([rdotn.reshape(-1,1),])
-                        # (rdotn**3).reshape(-1,1)])
-                        # (rdotn*tanth**2).reshape(-1,1)])
-                        # (rdotn*tanph**2).reshape(-1,1)])
+        Xp = np.hstack([rdotn.reshape(-1,1),
+                        (rdotn**3).reshape(-1,1)])
         return Xp
 
-    Xtrain = selected_features(Xtrain) # generate_cross_terms(Xtrain, order=3)
+    Xtrain = selected_features(Xtrain)
+    # Xtrain = generate_cross_terms(Xtrain, order=3)
     print("Xtrain.shape =", Xtrain.shape)
 
     # Define a predictor and/or an objective function
-    def glm(X, *p):
+    def linmodel(X, *p):
         Xp = np.dot(X, p)
         Ypred = np.zeros(Xp.shape)
         idx_ok = (Xp < 100.0)
-        # Ypred[idx_ok] = 1.0/(1.0 + np.exp(Xp[idx_ok]))
-        Ypred[idx_ok] = np.tanh(np.pi*Xp[idx_ok])
+        Ypred[idx_ok] = 0.5*(1 + np.tanh(Xp[idx_ok]))
+        # experiment:  can a polynomial do just as well?
+        # Ypred[idx_ok] = 0.5*(1 + Xp[idx_ok])
         return Ypred
 
     def logpost(p, *args):
-        X, Y = args
-        Ypred = glm(X, *p)
+        # print("args =", args)
+        X, Y, Lreg = args
+        Ypred = linmodel(X, *p)
         resids = Ypred - Y
         # maximizing log probability = minimizing -log probability
-        return np.sum((Ypred-Y)**2) + 0.01*np.sum(np.abs(p))
+        return np.sum((Ypred-Y)**2) + Lreg*np.sum(np.abs(p))
 
     # Let's get out our curve-fitting apparatus
     from scipy.optimize import curve_fit
     p0 = np.zeros(Xtrain.shape[1])
-    popt, pcov = profile_timer(curve_fit, glm, Xtrain, Ytrain, p0)
-    resids = (glm(Xtrain, *popt)-Ytrain)
-    print("GLM fit:  popt =", popt)
+    popt, pcov = profile_timer(curve_fit, linmodel, Xtrain, Ytrain, p0)
+    resids = (linmodel(Xtrain, *popt)-Ytrain)
+    print("linear model fit:  popt =", popt)
     print("resids:  mean = {}, std = {}".format(resids.mean(), resids.std()))
 
     # Let's add the lasso penalty now
+    # Find the regularization strength by cross-validation
     from scipy.optimize import minimize
-    results = profile_timer(minimize, logpost, p0, (Xtrain, Ytrain),
-                            method='Nelder-Mead', options={'maxiter': 10000})
-    print("results =", results)
-    resids = (glm(Xtrain, *(results.x))-Ytrain)
-    print("GLM fit:  popt =", results.x)
+    popts = [ ]
+    objfevals = [ ]
+    Lregvals = 10**np.arange(-3.0, 5.5, 0.5)
+    for Lreg in Lregvals:
+        results = profile_timer(minimize, logpost, p0, (Xtrain, Ytrain, Lreg),
+                                method='Nelder-Mead', options={'maxiter': 10000})
+        popt = np.array(results.x)
+        objfunc = logpost(popt, Xtrain, Ytrain, Lreg)
+        print("Lreg = {}:  objfunc = {}".format(Lreg, objfunc))
+        popts.append(popt)
+        objfevals.append(objfunc)
+    # Select threshold value of parameters favoring shrinkage
+    objfevals = np.array(objfevals)
+    idx = np.arange(len(Lregvals))
+    iopt = len(idx[objfevals < 2.0*np.min(objfevals)])
+    print("selected Lreg = {}, popt = {}".format(Lregvals[iopt], popts[iopt]))
+    resids = (linmodel(Xtrain, *popts[iopt]) - Ytrain)
     print("resids:  mean = {}, std = {}".format(resids.mean(), resids.std()))
 
 
 if __name__ == "__main__":
     compare_antialiasing(N_features_gp=3, vertical=True)
-    # fit_glm_antialiasing()
+    # fit_antialiasing()
