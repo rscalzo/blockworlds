@@ -185,7 +185,8 @@ def plot_model_slice(mesh, model, ax=None,
     if show:
         plt.show()
 
-def plot_gravity(survey, data, ax=None, axlabels=True, colorbar=True):
+def plot_gravity(survey, data, ax=None, axlabels=True, colorbar=True,
+                 ncontour=10, contour_opts={}):
     """
     Shows a 2-D overhead map of a gravity survey
     :param survey: survey instance
@@ -194,6 +195,8 @@ def plot_gravity(survey, data, ax=None, axlabels=True, colorbar=True):
         if None, create new set of axes and hit matplotlib.show() at the end
     :return: nothing (yet)
     """
+    contourOpts = { 'cmap': 'bwr' }
+    contourOpts.update(contour_opts)
     show = (ax is None)
     if show:
         fig = plt.figure(figsize=(6, 5))
@@ -201,7 +204,7 @@ def plot_gravity(survey, data, ax=None, axlabels=True, colorbar=True):
     locations = survey.receiver_locations
     quadcont, axsub = plot2Ddata(
         survey.receiver_locations, data, ax=ax,
-        contourOpts={"cmap": "bwr"}
+        ncontour=ncontour, contourOpts=contourOpts
     )
     if axlabels:
         ax.set_title("Gravity Anomaly (Z-component)")
@@ -304,8 +307,8 @@ class DiscreteGravity:
 
 class RichardsonGravity:
     """
-    Run gravity on different meshes, then solve for the infinite resolution
-    limit with appropriate uncertainty attached
+    Experimental:  Run gravity on different meshes, then solve for the
+    infinite resolution limit with appropriate uncertainty attached.
     """
 
     def __init__(self, L, dL, survey, gfunc):
@@ -417,4 +420,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    # notebook_test_scratch()
