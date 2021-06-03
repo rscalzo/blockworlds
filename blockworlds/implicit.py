@@ -81,6 +81,34 @@ class UniGaussianDist(LogPrior):
         return np.random.normal(self.mean, self.std, size=1)
 
 
+class UniLognormDist(LogPrior):
+    """
+    1-D lognormal distribution
+    """
+    _pars = ['mean', 'std']
+    Ndim = 1
+
+    def __init__(self, **kwargs):
+        super(UniLognormDist, self).__init__(**kwargs)
+        self.logmu = np.log(self.mean**2 / np.sqrt(self.mean**2 + self.std**2))
+        self.logsig = np.sqrt(np.log(1 + self.std**2/self.mean**2))
+
+    def __call__(self, x):
+        # Quick range check to avoid NaN logs
+        u = np.array(np.atleast_1d(x))
+        iok = (u > 0)
+        u[iok] = np.log(u[iok])
+        u[~iok] = -np.inf
+        lognorm = -0.5 * np.log(2 * np.pi * self.logsig**2) - u
+        r = np.zeros(u.shape)
+        r[iok] = -0.5*((u[iok] - self.logmu)/self.logsig)**2 + lognorm[iok]
+        r[~iok] = -np.inf
+        return r
+
+    def sample(self, size=1):
+        return np.exp(np.random.normal(self.logmu, self.logsig, size=size))
+
+
 class UniformDist(LogPrior):
     """
     1-D uniform distribution
@@ -357,19 +385,19 @@ def gen_two_fault_model_demo(pars):
     history = GeoHistory()
     history.add_event(
         BasementEvent(
-            [('density', UniGaussianDist(mean=rho_0, std=0.5))]
+            [('density', UniLognormDist(mean=rho_0, std=0.5))]
         )
     )
     history.add_event(
         StratLayerEvent(
-            [('thickness', UniGaussianDist(mean=dz_1, std=50.0)),
-             ('density', UniGaussianDist(mean=rho_1, std=0.1))]
+            [('thickness', UniLognormDist(mean=dz_1, std=50.0)),
+             ('density', UniLognormDist(mean=rho_1, std=0.1))]
         )
     )
     history.add_event(
         StratLayerEvent(
-            [('thickness', UniGaussianDist(mean=dz_2, std=50.0)),
-             ('density', UniGaussianDist(mean=rho_2, std=0.1))]
+            [('thickness', UniLognormDist(mean=dz_2, std=50.0)),
+             ('density', UniLognormDist(mean=rho_2, std=0.1))]
         )
     )
     history.add_event(
@@ -410,28 +438,28 @@ def gen_fold_model_demo(pars):
     history = GeoHistory()
     history.add_event(
         BasementEvent(
-            [('density', UniGaussianDist(mean=rho_0, std=0.5))]
+            [('density', UniLognormDist(mean=rho_0, std=0.5))]
         )
     )
     history.add_event(
         StratLayerEvent(
-            [('thickness', UniGaussianDist(mean=dz_1, std=50.0)),
-             ('density', UniGaussianDist(mean=rho_1, std=0.1))]
+            [('thickness', UniLognormDist(mean=dz_1, std=50.0)),
+             ('density', UniLognormDist(mean=rho_1, std=0.1))]
         )
     )
     history.add_event(
         StratLayerEvent(
-            [('thickness', UniGaussianDist(mean=dz_2, std=50.0)),
-             ('density', UniGaussianDist(mean=rho_2, std=0.1))]
+            [('thickness', UniLognormDist(mean=dz_2, std=50.0)),
+             ('density', UniLognormDist(mean=rho_2, std=0.1))]
         )
     )
     history.add_event(
         FoldEvent(
-            [('nth', 'nph', vMFDist(th0=nth_3, ph0=nph_3, kappa=500)),
+            [('nth', 'nph', vMFDist(th0=nth_3, ph0=nph_3, kappa=25)),
              ('pitch', UniGaussianDist(mean=psi_3, std=1.0)),
              ('phase', UniGaussianDist(mean=phi_3, std=1.0)),
-             ('wavelength', UniGaussianDist(mean=L_3, std=50.0)),
-             ('amplitude', UniGaussianDist(mean=A_3, std=5.0))]
+             ('wavelength', UniLognormDist(mean=L_3, std=50.0)),
+             ('amplitude', UniLognormDist(mean=A_3, std=5.0))]
         )
     )
     history.add_event(
@@ -498,6 +526,4 @@ def plot_subsurface_02():
         plt.show()
 
 if __name__ == "__main__":
-    # plot_soft_if_then()
-    # plot_subsurface_01()
     plot_subsurface_02()
