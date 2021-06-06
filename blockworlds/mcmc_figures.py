@@ -7,6 +7,8 @@ This separates the MCMC dependencies out from the main code.  It's basically
 the same infrastructure I've been using in the notebooks, put into production.
 """
 
+import re
+import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.special as sp
@@ -17,9 +19,6 @@ from implicit import gen_two_fault_model_demo, gen_fold_model_demo
 from riemann import Sampler, Model
 from riemann.proposals.randomwalk import AdaptiveMetropolisRandomWalk as AMRW
 from riemann.samplers.ptsampler import PTSampler
-import re
-import pickle
-import emcee
 
 
 # Model configuration classes for easy running, to make sure the baseline
@@ -282,9 +281,17 @@ def run_mcmc(model, Nsamp=100000, Nburn=20000, Nthin=100, temper=False):
     profile_timer(sampler.run, Nsamp)
     chain = np.array(sampler._chain_thetas)
     accept_frac = np.mean(chain[1:] - chain[:-1] != 0)
-    tau = emcee.autocorr.integrated_time(chain, quiet=True)
     print("run_mcmc: chain finished; acceptance fraction =", accept_frac)
-    print("run_mcmc:  autocorrelation time = ", tau)
+    # Calculate autocorrelation time using emcee module
+    # It's only used in this one place, so if user doesn't have it,
+    # don't make them install it just to run the MCMC itself
+    try:
+        import emcee
+        tau = emcee.autocorr.integrated_time(chain, quiet=True)
+        print("run_mcmc:  autocorrelation time = ", tau)
+    except:
+        print("run_mcmc:  install emcee to use its autocorr submodule")
+        pass
     return chain[Nburn:Nsamp:Nthin]
 
 def gelman_rubin(data, verbose=False):
@@ -420,6 +427,11 @@ def run_model_sampling(model_config_list):
             pickle.dump(np.array(chains), pklfile)
 
 def sampling_table(model_config_list):
+    try:
+        import emcee
+    except:
+        print("sampling_table:  install emcee to use its autocorr submodule")
+        return
     output = ""
     for gconf in model_config_list:
         i = gconf.model_index
