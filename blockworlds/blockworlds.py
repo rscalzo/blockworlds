@@ -11,7 +11,6 @@ discretization needed to solve the sensor forward model problem.
 # Imports after one of the SimPEG tensor mesh gravity forward model examples
 
 import numpy as np
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import time
 
@@ -19,10 +18,9 @@ from discretize import TensorMesh, TreeMesh
 from discretize.utils import mkvc
 from discretize.utils.meshutils import refine_tree_xyz
 
-from SimPEG.utils import plot2Ddata, model_builder
+from SimPEG.utils import plot2Ddata
 from SimPEG import maps
 from SimPEG.potential_fields import gravity
-# import SimPEG.dask
 
 
 def profile_timer(f, *args, **kwargs):
