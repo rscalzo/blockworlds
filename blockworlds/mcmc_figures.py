@@ -657,11 +657,5 @@ def main():
             traceplots(gconf)
 
 
-# prior_table(fold_model_confs)
-    # ----- UNTESTED WITH NEW VERSION -----
-    # traceplots("chainplots/amrw_stepsize=v2_thin10_t5/implicit_8_chains",
-    #            fold_model_confs[0])
-# traceplots("implicit_5_chains")
-
 if __name__ == "__main__":
     main()
