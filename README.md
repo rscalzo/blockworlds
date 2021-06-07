@@ -15,7 +15,7 @@ The main difference between Blockworlds and Noddy is that the rock properties in
 * Python 3.6;
 * ``numpy``/``scipy``/``matplotlib``;
 * the [``SimPEG``](https://github.com/simpeg/simpeg) geophysics library (v0.14.0);
-* the [``riemann``](https://github.com/rscalzo/riemann) MCMC sampling library (v1.0.0).
+* the [``riemann``](https://github.com/rscalzo/riemann) MCMC sampling library (v0.1.0).
 
 The calculations of autocorrelation time in our paper use the ``autocorr`` subpackage of v3.0.2 of the [``emcee``](https://emcee.readthedocs.io/en/v2.2.1/) package (Foreman-Mackey et al. 2013), but this is only used when generating summary tables.  You won't need emcee to run our models.
 
@@ -31,9 +31,18 @@ The code for Figure 1 and Figure 2a are found in the Jupyter notebook ``figures.
 
 Figure 2b can be reproduced by running ``antialias.py`` from the command line.
 
-The computer model elements of Figures 3-7 can be reproduced for any of the models (not just the ones shown) by running ``mcmc_figures.py``.
+The computer model elements of Figures 3-7 can be reproduced for any of the models (not just the ones shown) by running ``mcmc_figures.py``.  Models can be run individually or in batches.  For example, the command
+
+```mcmc_figures.py --model_ids 2 4 6 8 --run_mcmc --results_table --traceplots```
+
+will re-run MCMC sampling for all even-numbered models, writing the chain output to pickle files in the working directory, and outputting a summary table in
+the same format as Table 2.  Trace plots will also be generated for all model parameters in the same format as Figure 7, with one EPS plot for each parameter of each model.
+
+```mcmc_figures.py --model_ids 1 2 3 4 5 6 7 8 --run_slicefigs```
+
+will re-run the posterior slice figures for all models, with one plot for each parameter of each model (i.e. a row of Figure 5 or 6).
 
 
 ## Demo Notebook
 
-A Jupyter notebook showing an example of how blockworlds models are set up and run can be found in ```blockworlds.ipynb```.  This notebook fills the role of a manual for the code.
+A Jupyter notebook showing an example of how Blockworlds models are set up and run can be found in ```blockworlds.ipynb```.  This notebook fills the role of a manual for the code.
