@@ -9,6 +9,7 @@ the same infrastructure I've been using in the notebooks, put into production.
 
 import re
 import pickle
+import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.special as sp
@@ -435,7 +436,7 @@ def sampling_table(model_config_list):
     output = ""
     for gconf in model_config_list:
         i = gconf.model_index
-        basefname = "sliceplots/slices_4col_refinex5_B/implicit_{}_chains".format(i)
+        basefname = "implicit_{}_chains".format(i)
         for h in range(2):
             akalabels = ['   ', '-AA']
             ext =  "_h{}.pkl".format(h)
@@ -477,40 +478,34 @@ def prior_table(model_config_list):
     print(output)
     return output
 
-def traceplots(basepklfname, gconf):
+def traceplots(gconf):
     """
     Make some trace plots for the paper
     :param pklfname: filename for pickled chains
     :return: N/A
     """
     model_parnames, model_index = gconf.parnames, gconf.model_index
-    print("azidx =", azidx)
+    basepklfname = "implicit_{}_chains".format(model_index)
     # Chains array is of shape [Nchains, Nsamples, Npars]
     with open(basepklfname + "_h0.pkl", 'rb') as pklfile:
         chains_h0 = pickle.load(pklfile)
     with open(basepklfname + "_h1.pkl", 'rb') as pklfile:
         chains_h1 = pickle.load(pklfile)
     for i, ylabel in enumerate(model_parnames):
-        """
-        if i in azidx:
-            print(chains_h0[0,:,i])
-            plt.hist(chains_h0[:,:,i].T, bins=50)
-            plt.show()
-        """
         plt.figure(figsize=(5,7))
         plt.subplot(2, 1, 1)
         plt.plot(chains_h0[:,:,i].T)
-        plt.title("Chain Traces for Model 5 (Aliased)")
+        plt.title("Chain Traces for Model {} (Aliased)".format(model_index))
         plt.xlabel('Sample Number ($\\times 100$)')
         plt.ylabel(ylabel)
         plt.subplot(2, 1, 2)
         plt.plot(chains_h1[:,:,i].T)
-        plt.title("Chain Traces for Model 5 (Anti-Aliased)")
+        plt.title("Chain Traces for Model {} (Anti-Aliased)".format(model_index))
         plt.xlabel('Sample Number ($\\times 100$)')
         plt.ylabel(ylabel)
         plt.subplots_adjust(top=0.92, bottom=0.08, left=0.16, hspace=0.35)
-        plt.savefig("implicit_5_trace_{}.eps".format(i))
-        # plt.show()
+        plt.savefig("implicit_{}_trace_{}.eps".format(model_index, i))
+        plt.close()
 
 def slice_figures(gconf):
 
@@ -620,16 +615,53 @@ def testlognorm():
     plt.show()
 
 
-if __name__ == "__main__":
+def main():
+    """
+    The main routine
+    """
+    parser = argparse.ArgumentParser(
+        description="Running figures for Blockworlds paper."
+    )
+    parser.add_argument('--model_ids', metavar='model_num', type=int,
+                        nargs='+', help="run one or more models")
+    parser.add_argument('--run_mcmc', action='store_true', default=False,
+                        help="run MCMC for one or more models")
+    parser.add_argument('--run_sliceplots', action='store_true', default=False,
+                        help="run slice plots for one or more models")
+    parser.add_argument('--results_table', action='store_true', default=False,
+                        help="tabulate summary statistics for MCMC runs")
+    parser.add_argument('--run_traceplots', action='store_true', default=False,
+                        help="make trace plots for models from MCMC runs")
+    args = parser.parse_args()
+
+    # Parse list of model IDs and link to configurations
+    if args.model_ids is not None:
+        run_model_confs = [geo_model_confs[i] for i in args.model_ids]
+    else:
+        run_model_confs = [ ]
+
     # Re-run MCMC experiments
-    # profile_timer(run_model_sampling, fault_model_confs + fold_model_confs)
-    # for gconf in (fault_model_confs + fold_model_confs):
-    #     slice_figures(gconf)
-    # slice_figures(fold_model_confs[0])
-    sampling_table(fold_model_confs)
-    # prior_table(fold_model_confs)
+    if args.run_mcmc:
+        profile_timer(run_model_sampling, run_model_confs)
+
+    # Re-run slice plots
+    if args.run_sliceplots:
+        for gconf in run_model_confs:
+            slice_figures(gconf)
+
+    if args.results_table:
+        sampling_table(run_model_confs)
+
+    if args.run_traceplots:
+        for gconf in run_model_confs:
+            traceplots(gconf)
+
+
+# prior_table(fold_model_confs)
     # ----- UNTESTED WITH NEW VERSION -----
-    # testlognorm()
     # traceplots("chainplots/amrw_stepsize=v2_thin10_t5/implicit_8_chains",
     #            fold_model_confs[0])
-    # traceplots("implicit_5_chains")
+# traceplots("implicit_5_chains")
+
+if __name__ == "__main__":
+    main()
