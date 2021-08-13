@@ -10,8 +10,8 @@ compositions of events that introduce implicit interfaces into a volume.
 import numpy as np
 import scipy.special
 import matplotlib.pyplot as plt
-from blockworlds import profile_timer, DiscreteGravity
-from blockworlds import baseline_tensor_mesh, survey_gridded_locations
+from blockworlds.gravity import profile_timer, DiscreteGravity
+from blockworlds.gravity import baseline_tensor_mesh, survey_gridded_locations
 
 
 # ============================================================================
@@ -85,6 +85,7 @@ class UniLognormDist(LogPrior):
     """
     1-D lognormal distribution
     """
+
     _pars = ['mean', 'std']
     Ndim = 1
 
