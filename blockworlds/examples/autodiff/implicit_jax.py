@@ -17,8 +17,8 @@ from jax import grad, jacobian, jit
 from jax.config import config
 import jax.numpy as jnp
 import jax.scipy.special
-from blockworlds import profile_timer, DiscreteGravity
-from blockworlds import baseline_tensor_mesh, survey_gridded_locations
+from blockworlds.gravity import profile_timer, DiscreteGravity
+from blockworlds.gravity import baseline_tensor_mesh, survey_gridded_locations
 
 config.update("jax_debug_nans", True)
 
