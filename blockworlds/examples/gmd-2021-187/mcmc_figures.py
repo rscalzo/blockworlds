@@ -13,10 +13,12 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.special as sp
-from blockworlds import profile_timer, DiscreteGravity
-from blockworlds import baseline_tensor_mesh, survey_gridded_locations
-from implicit import UniLognormDist
-from implicit import gen_two_fault_model_demo, gen_fold_model_demo
+
+from blockworlds.gravity import profile_timer, DiscreteGravity
+from blockworlds.gravity import baseline_tensor_mesh, survey_gridded_locations
+from blockworlds.implicit import UniLognormDist
+from blockworlds.implicit import gen_two_fault_model_demo, gen_fold_model_demo
+
 from riemann import Sampler, Model
 from riemann.proposals.randomwalk import AdaptiveMetropolisRandomWalk as AMRW
 from riemann.samplers.ptsampler import PTSampler

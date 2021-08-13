@@ -11,7 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from discretize import TensorMesh
 from sklearn import gaussian_process as GP
-from blockworlds import profile_timer
+from blockworlds.gravity import profile_timer
 
 Neval = 20
 hx = hy = hz = [(1.0 / Neval, Neval), ]
