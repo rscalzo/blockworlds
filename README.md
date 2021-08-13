@@ -1,4 +1,4 @@
-# blockworlds
+# blockworlds [![DOI](https://zenodo.org/badge/276010796.svg)](https://zenodo.org/badge/latestdoi/276010796)
 
 A sandbox module for geophysical inversions based on kinematic geological models
 
