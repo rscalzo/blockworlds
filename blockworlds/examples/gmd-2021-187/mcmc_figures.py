@@ -168,9 +168,17 @@ fault_model_confs = [
 
 fold_model_confs = [
     # Mark Lindsay's implicit model 8
-    FoldModelConfig(8, [3.0, 350.0, 2.5, 190.0, 2.0,            # stratigraphy
-                        0.0, 0.0, 0.0, 0.0, 1000.0, 100.0,      # 1st fold
-                        250.0, 0.0, -205.0, 0.0, 200.0], ),     # 1st fault
+    FoldModelConfig(8, [3.0, 350.0, 2.5, 190.0, 2.0,        # stratigraphy
+                        0.0, 0.0, 0.0, 0.0, 1000.0, 100.0,  # 1st fold
+                        250.0, 0.0, -205.0, 0.0, 200.0], ), # 1st fault
+    # RS implicit model with short wavelength
+    FoldModelConfig(9, [3.0, 350.0, 2.5, 190.0, 2.0,
+                        0.0, 0.0, 0.0, 0.0, 150.0, 200.0,
+                        250.0, 0.0, -205.0, 0.0, 200.0], ),
+    # RS implicit model with short-wavelength folds near surface
+    FoldModelConfig(10, [3.0, 75.0, 2.5, 75.0, 2.0,
+                        0.0, 0.0, 0.0, 0.0, 150.0, 200.0,
+                        250.0, 0.0, -205.0, 0.0, 200.0], ),
 ]
 
 geo_model_confs = fault_model_confs + fold_model_confs
