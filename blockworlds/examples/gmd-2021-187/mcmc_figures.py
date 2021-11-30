@@ -17,7 +17,8 @@ import scipy.special as sp
 from blockworlds.gravity import profile_timer, DiscreteGravity
 from blockworlds.gravity import baseline_tensor_mesh, survey_gridded_locations
 from blockworlds.implicit import UniLognormDist
-from blockworlds.implicit import gen_two_fault_model_demo, gen_fold_model_demo
+from blockworlds.implicit import gen_two_fault_model_demo, \
+    gen_fold_model_demo, gen_two_fold_model_demo
 
 from riemann import Sampler, Model
 from riemann.proposals.randomwalk import AdaptiveMetropolisRandomWalk as AMRW
@@ -129,6 +130,61 @@ class FoldModelConfig(object):
         return history
 
 
+class TwoFoldModelConfig(object):
+
+    def __init__(self, model_index, parvals):
+        self.L, self.NL = 1000.0, 15
+        # Characteristic initial-guess step sizes for MCMC
+        self.stepsizes = np.array([0.1, 10.0, 0.02, 10.0, 0.02,
+                                   0.6, 0.6, 0.2, 0.2, 10.0, 2.0,
+                                   0.6, 0.6, 0.2, 0.2, 10.0, 2.0])
+        # Labels for plots
+        self.parnames = [
+            "Basement Density (g cm$^{-3}$)",   # 0
+            "Layer 1 Thickness (m)",            # 1
+            "Layer 1 Density (g cm$^{-3}$)",    # 2
+            "Layer 2 Thickness (m)",            # 3
+            "Layer 2 Density (g cm$^{-3}$)",    # 4
+            "Fold 1 Axis Elevation (deg)",      # 5
+            "Fold 1 Axis Azimuth (deg)",        # 6
+            "Fold 1 Pitch Angle (deg)",         # 7
+            "Fold 1 Phase Angle (deg)",         # 8
+            "Fold 1 Wavelength (m)",            # 9
+            "Fold 1 Amplitude (m)",             # 10
+            "Fold 2 Axis Elevation (deg)",      # 11
+            "Fold 2 Axis Azimuth (deg)",        # 12
+            "Fold 2 Pitch Angle (deg)",         # 13
+            "Fold 2 Phase Angle (deg)",         # 14
+            "Fold 2 Wavelength (m)",            # 15
+            "Fold 2 Amplitude (m)",             # 16
+        ]
+        # List of 2-D diagnostic posterior slice plots; each row contains
+        # two parameter indices and two plot extents in that parameter's units
+        self.sliceplotlist = [
+            [1,  3, 200.0, 100.0],  # widths of layers on top of basement
+            [5,  6,  25.0,  25.0],  # the fold axis orientation
+            [9, 10, 200.0, 200.0],  # fold wavelength vs amplitude
+            [3,  5, 100.0,  25.0],  # layer width vs fold elevation
+            [3, 10, 100.0, 200.0],  # layer width vs fold amplitude
+            [9, 15, 200.0, 200.0],  # fold 1 wavelength vs fold 2 wavelength
+        ]
+
+        # Sanity check & initialize
+        if len(parvals) != len(self.parnames):
+            n = self.__class__.__name__
+            raise IndexError('len(parvals) != len(parnames) in {}'.format(n))
+        self.parvals = parvals
+        self.model_index = model_index
+
+    def geohist(self):
+        history = gen_two_fold_model_demo(self.parvals)
+        history.deserialize(self.parvals)
+        return history
+
+
+
+
+
 # True values of parameters for various demo models
 
 fault_model_confs = [
@@ -171,17 +227,44 @@ fold_model_confs = [
     FoldModelConfig(8, [3.0, 350.0, 2.5, 190.0, 2.0,        # stratigraphy
                         0.0, 0.0, 0.0, 0.0, 1000.0, 100.0,  # 1st fold
                         250.0, 0.0, -205.0, 0.0, 200.0], ), # 1st fault
-    # RS implicit model with short wavelength
+    # RS implicit model with short wavelength folds
     FoldModelConfig(9, [3.0, 350.0, 2.5, 190.0, 2.0,
-                        0.0, 0.0, 0.0, 0.0, 150.0, 200.0,
+                        0.0, 0.0, 0.0, 0.0, 300.0, 100.0,
                         250.0, 0.0, -205.0, 0.0, 200.0], ),
-    # RS implicit model with short-wavelength folds near surface
-    FoldModelConfig(10, [3.0, 75.0, 2.5, 75.0, 2.0,
-                        0.0, 0.0, 0.0, 0.0, 150.0, 200.0,
-                        250.0, 0.0, -205.0, 0.0, 200.0], ),
+    # RS implicit model with shorter wavelength folds
+    FoldModelConfig(10, [3.0, 350.0, 2.5, 190.0, 2.0,
+                         0.0, 0.0, 0.0, 0.0, 150.0, 100.0,
+                         250.0, 0.0, -205.0, 0.0, 200.0], ),
+    # RS implicit model with short wavelength folds farther below surface
+    FoldModelConfig(11, [3.0, 350.0, 2.5, 390.0, 2.0,
+                         0.0, 0.0, 0.0, 0.0, 300.0, 100.0,
+                         250.0, 0.0, -205.0, 0.0, 200.0], ),
+    # RS implicit model with shorter wavelength folds farther below surface
+    FoldModelConfig(12, [3.0, 350.0, 2.5, 390.0, 2.0,
+                         0.0, 0.0, 0.0, 0.0, 150.0, 100.0,
+                         250.0, 0.0, -205.0, 0.0, 200.0], ),
 ]
 
-geo_model_confs = fault_model_confs + fold_model_confs
+twofold_model_confs = [
+    # RS folded-fold model with axes crossed
+    TwoFoldModelConfig(13, [3.0, 350.0, 2.5, 190.0, 2.0,
+                            0.0, 0.0, 0.0, 0.0, 300.0, 100.0,
+                            0.0, 60.0, 0.0, 0.0, 300.0, 100.0], ),
+    # RS folded-fold model with axes aligned but different wavelengths
+    TwoFoldModelConfig(14, [3.0, 350.0, 2.5, 190.0, 2.0,
+                            0.0, 0.0, 0.0, 0.0, 300.0, 100.0,
+                            0.0, 0.0, 0.0, 120.0, 500.0, 100.0], ),
+    # RS folded-fold model with really thin layers near the surface
+    TwoFoldModelConfig(15, [3.0, 100.0, 2.5, 100.0, 2.0,
+                            0.0, 0.0, 0.0, 0.0, 300.0, 100.0,
+                            0.0, 0.0, 0.0, 120.0, 500.0, 100.0], ),
+    # RS folded-fold model with even thinner layers near the surface
+    TwoFoldModelConfig(16, [3.0, 50.0, 2.5, 50.0, 2.0,
+                            0.0, 0.0, 0.0, 0.0, 300.0, 200.0,
+                            0.0, 0.0, 0.0, 120.0, 500.0, 200.0], ),
+]
+
+geo_model_confs = fault_model_confs + fold_model_confs + twofold_model_confs
 
 
 # ============================================================================
@@ -517,6 +600,32 @@ def traceplots(gconf):
         plt.savefig("implicit_{}_trace_{}.eps".format(model_index, i))
         plt.close()
 
+def all_model_slices():
+
+    # Set up the plot
+    plt.figure(figsize=(14,13))
+    for i, gconf in enumerate(geo_model_confs[1:]):
+        # Initialize a GeoModel at the desired resolution
+        L, NL, Nz = gconf.L, gconf.NL, 30
+        gconf.NL = 45
+        model = initialize_geomodel(gconf)
+        aka = True
+        # Plot the cross-section
+        ax1 = plt.subplot(4, 4, i + 1)
+        fm = model.fwdmodel
+        fm.plot_model_slice(ax=ax1, axlabels=(i % 4 == 0),
+                            grid=False) # (i % 1 == 0))
+        ax1.set_xlabel("x (m)")
+        if i % 4 == 0:
+            plt.ylabel("z (m)")
+        else:
+            plt.ylabel("")
+        ax1.set_title("Model {}".format(gconf.model_index))
+    plt.subplots_adjust(left=0.08, right=0.92,
+                        hspace=0.5, wspace=0.35)
+    figfn = "sliceplots/all_model_slices.eps"
+    plt.savefig(figfn)
+
 def slice_figures(gconf):
 
     # Don't make us re-do any of these scans if we don't have to
@@ -634,6 +743,8 @@ def main():
     )
     parser.add_argument('--model_ids', metavar='model_num', type=int,
                         nargs='+', help="run one or more models")
+    parser.add_argument('--run_blockfig', action='store_true', default=False,
+                        help="run cross sections for all model final states")
     parser.add_argument('--run_mcmc', action='store_true', default=False,
                         help="run MCMC for one or more models")
     parser.add_argument('--run_sliceplots', action='store_true', default=False,
@@ -649,6 +760,10 @@ def main():
         run_model_confs = [geo_model_confs[i] for i in args.model_ids]
     else:
         run_model_confs = [ ]
+
+    # Run spatial cross sections for all model final states
+    if args.run_blockfig:
+        profile_timer(all_model_slices)
 
     # Re-run MCMC experiments
     if args.run_mcmc:
