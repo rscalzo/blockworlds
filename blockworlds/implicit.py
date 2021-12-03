@@ -420,7 +420,7 @@ def gen_two_fault_model_demo(pars):
     return history
 
 
-def gen_fold_model_demo(pars):
+def gen_fold_fault_model_demo(pars):
     """
     Generate a demo model with three stratigraphic layers, a fold and a fault
     (16 parameters), based on some starting parameter values as provided by
@@ -523,6 +523,58 @@ def gen_two_fold_model_demo(pars):
              ('phase', UniGaussianDist(mean=phi_4, std=1.0)),
              ('wavelength', UniLognormDist(mean=L_4, std=50.0)),
              ('amplitude', UniLognormDist(mean=A_4, std=5.0))]
+        )
+    )
+    return history
+
+def gen_fault_fold_model_demo(pars):
+    """
+    Generate a demo model with three stratigraphic layers, a fault and a fold
+    (16 parameters), based on some starting parameter values I made up.
+    :param pars: np.array of shape (16,)
+    :return: GeoHistory instance
+    """
+    (rho_0, dz_1, rho_1, dz_2, rho_2,               # stratigraphy
+     x0_4, y0_4, nth_4, nph_4, s_4,                 # fault
+     nth_3, nph_3, psi_3, phi_3, L_3, A_3) = pars   # fold
+
+    # Initialize a new history and set the prior means at the values of the
+    # true parameters.  This implicitly makes us assume we're within the
+    # support of the prior throughout, so if we want to investigate possible
+    # prior misspecification we'll have to modify or supplant this.
+    history = GeoHistory()
+    history.add_event(
+        BasementEvent(
+            [('density', UniLognormDist(mean=rho_0, std=0.5))]
+        )
+    )
+    history.add_event(
+        StratLayerEvent(
+            [('thickness', UniLognormDist(mean=dz_1, std=50.0)),
+             ('density', UniLognormDist(mean=rho_1, std=0.1))]
+        )
+    )
+    history.add_event(
+        StratLayerEvent(
+            [('thickness', UniLognormDist(mean=dz_2, std=50.0)),
+             ('density', UniLognormDist(mean=rho_2, std=0.1))]
+        )
+    )
+    history.add_event(
+        PlanarFaultEvent(
+            [('x0', UniGaussianDist(mean=x0_4, std=1.0)),
+             ('y0', UniGaussianDist(mean=y0_4, std=1.0)),
+             ('nth', 'nph', vMFDist(th0=nth_4, ph0=nph_4, kappa=100)),
+             ('s', UniGaussianDist(mean=s_4, std=15.0))]
+        )
+    )
+    history.add_event(
+        FoldEvent(
+            [('nth', 'nph', vMFDist(th0=nth_3, ph0=nph_3, kappa=25)),
+             ('pitch', UniGaussianDist(mean=psi_3, std=1.0)),
+             ('phase', UniGaussianDist(mean=phi_3, std=1.0)),
+             ('wavelength', UniLognormDist(mean=L_3, std=50.0)),
+             ('amplitude', UniLognormDist(mean=A_3, std=5.0))]
         )
     )
     return history
