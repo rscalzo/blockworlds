@@ -317,6 +317,38 @@ geo_model_confs = two_fault_model_confs + fold_fault_model_confs \
 
 
 # ============================================================================
+#                  Finite difference gradient helper functions
+# ============================================================================
+
+
+def findiffdir(f, x, dx):
+    """
+    Calculate the derivative of f at x in the direction of the stepsize dx.
+    :param f: callable that accepts x as an argument
+    :param x: np.array
+    :param dx: np.array of same shape as x
+    :return: (symmetrized) first directional derivative
+    """
+    # Normalize to optimal length
+    dxnorm = np.sqrt(np.sum(dx**2))
+    fp, fm = f(x+dx), f(x-dx)
+    return 0.5*(fp-fm)/dxnorm
+
+def findiffgrad(f, x):
+    """
+    Calculate the gradient (vector) of f at x, in the standard basis.
+    :param f: callable that accepts x as an argument and returns a np.array
+    :param x: np.array of shape (d, )
+    :return: gradient vector of f at x, of shape (d, ...)
+    """
+    machpars = np.MachAr()
+    opteps = (machpars.eps) ** (1.0 / 3.0)
+    dx = opteps * np.eye(len(x))
+    gradf = np.array([findiffdir(f, x, dxi) for dxi in dx])
+    return gradf
+
+
+# ============================================================================
 #             riemann classes specifying statistical model for MCMC
 # ============================================================================
 
@@ -350,6 +382,19 @@ class GeoModel(Model):
         else:
             self.h = 0.001*self.hmesh
 
+    def fwdgrav(self, theta):
+        # Load this parameter vector into the history and calculate gravity
+        self.history.deserialize(theta)
+        return self.fwdmodel.calc_gravity(self.h)
+
+    def fisher_info(self, theta):
+        # This version works for Gaussian likelihood only
+        gradf = findiffgrad(self.fwdgrav, theta)
+        if self.alpha > 100:
+            return np.dot(gradf, gradf.T)/self.sigdata**2
+        else:
+            raise NotImplementedError
+
     def log_likelihood(self, theta):
         # Load this parameter vector into the history and calculate gravity
         self.history.deserialize(theta)
@@ -366,7 +411,6 @@ class GeoModel(Model):
             # and scale parameter sigdata = np.sqrt(beta/alpha)
             A, B, T = self.alpha, self.beta, self.tnorm
             return np.sum(-(A + 0.5) * np.log(B + 0.5 * resids**2) + T)
-
 
     def log_prior(self, theta):
         # Load this parameter vector into the history and calculate prior density
@@ -675,6 +719,35 @@ def all_model_slices():
                         hspace=0.6, wspace=0.35)
     figfn = "sliceplots/all_model_slices.eps"
     plt.savefig(figfn)
+
+def fisher_info(model, theta):
+    """
+    Calculate the Fisher information of gravity measurements
+    :param model: GeoModel instance
+    :param theta: geological parameter vector
+    :return: Fisher information (a square matrix)
+    """
+    # First calculate the finite-difference gradient of the model at theta
+    func = lambda theta: model.calc
+
+
+def model_fisher_info(gconf):
+
+    # Initialize two GeoModels at different resolutions but same parameters
+    L, NL, Nz = gconf.L, gconf.NL, 30
+    model = initialize_geomodel(gconf)
+    gconf.NL = 75
+    model_hires = initialize_geomodel(gconf)
+    gconf.NL = NL
+    # Extract the forward models from these and make the data agree
+    model.dsynth = model_hires.dsynth
+    # Activate anti-aliasing
+    model.set_antialiasing(True)
+    model_hires.set_antialiasing(True)
+
+    # Calculate the Fisher information at the true parameters using
+    # finite difference gradients of the likelihood
+    pass
 
 def slice_figures(gconf):
 
