@@ -8,6 +8,7 @@ the same infrastructure I've been using in the notebooks, put into production.
 """
 
 import re
+import sys
 import pickle
 import argparse
 import numpy as np
@@ -597,6 +598,7 @@ def run_model_sampling(model_config_list):
         model_chains_h1.append(np.array(chains))
         print("chains_h1.shape =", chains.shape)
         print("gelman_rubin(): Rhat = {}".format(gelman_rubin(chains)))
+        sys.stdout.flush()
         with open(basefname + "_h1.pkl", 'wb') as pklfile:
             pickle.dump(np.array(chains), pklfile)
         # Turn anti-aliasing back on and sample again
@@ -609,6 +611,7 @@ def run_model_sampling(model_config_list):
         model_chains_h0.append(np.array(chains))
         print("chains_h0.shape =", chains.shape)
         print("gelman_rubin(): Rhat = {}".format(gelman_rubin(chains)))
+        sys.stdout.flush()
         # Save to pickles for later; most likely faster than re-running!
         with open(basefname + "_h0.pkl", 'wb') as pklfile:
             pickle.dump(np.array(chains), pklfile)
@@ -636,7 +639,7 @@ def sampling_table(model_config_list):
                 print(">> Rhat:  {}".format(Rhat))
                 Rmean, Rmin, Rmax = np.mean(Rhat), np.min(Rhat), np.max(Rhat)
                 output += (
-                    "    {}{} & {:.1f} ({:.1f}, {:.1f}) $\\times 10^{{3}}$"
+                    "    {}{} & {:.1f} ({:.1f}, {:.1f}) $\\times 10^3$"
                     " & {:.2f} ({:.2f}, {:.2f}) \\\\\n".format
                     (i, akalabels[h], tmean, tmin, tmax, Rmean, Rmin, Rmax)
                 )
@@ -663,6 +666,50 @@ def prior_table(model_config_list):
         output += "\\\\\n"
     print(output)
     return output
+
+def resolve_KL(gconf, aka=True):
+    """
+    Calculate chain-averaged K-L divergence between low-resolution and
+    high-resolution versions of the posterior
+    :param gconf: GeoModelConf instance
+    :return: K-L divergence (float)
+    """
+    model_parnames, model_index = gconf.parnames, gconf.model_index
+    # Grab MCMC samples from (low-res) anti-aliased MCMC chain
+    # Chains array is of shape [Nchains, Nsamples, Npars]
+    akalabel = 1 if aka else 0
+    basepklfname = "implicit_{}_chains_h{}".format(model_index, akalabel)
+    print("Loading from chain set {}".format(basepklfname))
+    with open(basepklfname + ".pkl", 'rb') as pklfile:
+        chains = pickle.load(pklfile)
+    Nchains, Nsamples, Npars = chains.shape
+
+    # Initialize two GeoModels at different resolutions but same parameters
+    L, NL, Nz = gconf.L, gconf.NL, 30
+    model = initialize_geomodel(gconf)
+    gconf.NL = 75
+    model_hires = initialize_geomodel(gconf)
+    gconf.NL = NL
+    # Extract the forward models from these and make the data agree
+    model.dsynth = model_hires.dsynth
+    # Activate anti-aliasing
+    model.set_antialiasing(aka)
+    model_hires.set_antialiasing(True)
+
+    # Run through thinned chains recalculating the two models
+    # Here p = lo-res model (on which the MCMC chain was run)
+    # and  q = hi-res, anti-aliased model (which we'd like to have run)
+    flatchains = chains.reshape(Nchains*Nsamples, Npars)[::100]
+    print("chains.shape =", chains.shape)
+    print("flatchains.shape =", flatchains.shape)
+    logpost_p = np.array([np.float(model.log_posterior(t)) for t in flatchains])
+    logpost_q = np.array([np.float(model_hires.log_posterior(t)) for t in flatchains])
+    idx = ~np.any([np.isnan(logpost_p), np.isnan(logpost_q),
+                   np.isinf(logpost_p), np.isinf(logpost_q)], axis=0)
+    kldiv = np.mean((logpost_p - logpost_q)[idx])
+    print("Model {} (aka = {}): kldiv = {}".format(model_index, aka, kldiv))
+    sys.stdout.flush()
+    return kldiv
 
 def traceplots(gconf):
     """
@@ -719,35 +766,6 @@ def all_model_slices():
                         hspace=0.6, wspace=0.35)
     figfn = "sliceplots/all_model_slices.eps"
     plt.savefig(figfn)
-
-def fisher_info(model, theta):
-    """
-    Calculate the Fisher information of gravity measurements
-    :param model: GeoModel instance
-    :param theta: geological parameter vector
-    :return: Fisher information (a square matrix)
-    """
-    # First calculate the finite-difference gradient of the model at theta
-    func = lambda theta: model.calc
-
-
-def model_fisher_info(gconf):
-
-    # Initialize two GeoModels at different resolutions but same parameters
-    L, NL, Nz = gconf.L, gconf.NL, 30
-    model = initialize_geomodel(gconf)
-    gconf.NL = 75
-    model_hires = initialize_geomodel(gconf)
-    gconf.NL = NL
-    # Extract the forward models from these and make the data agree
-    model.dsynth = model_hires.dsynth
-    # Activate anti-aliasing
-    model.set_antialiasing(True)
-    model_hires.set_antialiasing(True)
-
-    # Calculate the Fisher information at the true parameters using
-    # finite difference gradients of the likelihood
-    pass
 
 def slice_figures(gconf):
 
@@ -878,6 +896,8 @@ def main():
                         help="tabulate summary statistics for MCMC runs")
     parser.add_argument('--run_traceplots', action='store_true', default=False,
                         help="make trace plots for models from MCMC runs")
+    parser.add_argument('--resolve_KL', action='store_true', default=False,
+                        help="calculate KL divergences for MCMC runs")
     args = parser.parse_args()
 
     # Parse list of model IDs and link to configurations
@@ -904,6 +924,11 @@ def main():
 
     if args.results_table:
         sampling_table(run_model_confs)
+
+    if args.resolve_KL:
+        for gconf in run_model_confs:
+            profile_timer(resolve_KL, gconf, aka=False)
+            profile_timer(resolve_KL, gconf, aka=True)
 
     if args.run_traceplots:
         for gconf in run_model_confs:
